@@ -25,12 +25,13 @@ jobs:
           EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
         run: |
           python <<EOF
-          import requests, json
+          import requests, json, os
           url = f"https://v6.exchangerate-api.com/v6/{ '${{ secrets.EXCHANGE_API_KEY }}' }/latest/USD"
           resp = requests.get(url, timeout=10)
           data = resp.json()
           if data.get("result") == "success":
               rates = data.get("conversion_rates", {})
+              os.makedirs("src/extractors", exist_ok=True)  # Ensure directory exists
               with open("src/extractors/exchange_rates_usd.json", "w") as f:
                   json.dump(rates, f, indent=2)
           else:
