@@ -1,0 +1,45 @@
+name: Update Exchange Rates
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs daily at midnight UTC
+  workflow_dispatch:      # Allow manual trigger
+
+jobs:
+  update-rates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Fetch exchange rates and update JSON
+        env:
+          EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
+        run: |
+          python <<EOF
+          import requests, json
+          url = f"https://v6.exchangerate-api.com/v6/{ '${{ secrets.EXCHANGE_API_KEY }}' }/latest/USD"
+          resp = requests.get(url, timeout=10)
+          data = resp.json()
+          if data.get("result") == "success":
+              rates = data.get("conversion_rates", {})
+              with open("src/extractors/exchange_rates_usd.json", "w") as f:
+                  json.dump(rates, f, indent=2)
+          else:
+              raise Exception("Failed to fetch rates: " + str(data))
+          EOF
+
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/exchange_rates_usd.json
+          git diff --cached --quiet || (git commit -m "Update exchange rates" && git push)
