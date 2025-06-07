@@ -321,15 +321,15 @@ class SalaryETL:
             'AED': 0.27, 'SAR': 0.27, 'QAR': 0.27, 'KWD': 3.28,
         }
 
-    def process_job_dataframe(self, df, text_column='job_description', include_title=True, title_column='job_title'):
+    def process_job_dataframe(self, df, text_column='description', include_title=True, title_column='title'):
         """
         Process a DataFrame of job posts to extract salary information
 
         Args:
             df: DataFrame with job posts
-            text_column: Column containing job description text
+            text_column: Column containing job description text (default: 'description')
             include_title: Whether to include job title in salary search
-            title_column: Column containing job titles
+            title_column: Column containing job titles (default: 'title')
 
         Returns:
             DataFrame with added salary columns
