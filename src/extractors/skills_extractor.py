@@ -10,7 +10,7 @@ Module for extracting technical skills from job descriptions including:
 Usage:
     from src.extractors.skills_extractor import extract_skills
 
-    skills = extract_skills(job_description)
+    skills = extract_skills(description)
 """
 
 # Import necessary libraries
@@ -51,7 +51,7 @@ def extract_skills(text):
     Extract skills by category from a job description.
 
     Parameters:
-        text (str): Job description text.
+        text (str): Job description text (from 'description' column).
 
     Returns:
         dict: A dictionary with extracted skills under each category.
