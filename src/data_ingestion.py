@@ -6,6 +6,7 @@ Downloads the latest 'clean_jobs.csv' from Kaggle and saves it to the data/bronz
 Intended to be run monthly via GitHub Actions.
 """
 
+# Import necessary libraries
 import os
 import subprocess
 
@@ -29,8 +30,13 @@ def download_kaggle_csv(
         "-f", filename, "--unzip", "-p", dest_folder
     ]
     print(f"Running command: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-    print(f"Downloaded {filename} to {dest_folder}")
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"Downloaded {filename} to {dest_folder}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error occurred: {e}")
+        print("Ensure Kaggle credentials are correctly configured.")
+        raise
 
 if __name__ == "__main__":
     download_kaggle_csv()
