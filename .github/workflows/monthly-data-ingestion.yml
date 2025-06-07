@@ -35,6 +35,9 @@ jobs:
             echo "$KAGGLE_JSON" > ~/.kaggle/kaggle.json
             chmod 600 ~/.kaggle/kaggle.json
 
+      - name: Debug kaggle.json (remove after testing)
+        run: cat ~/.kaggle/kaggle.json
+
       - name: Run data ingestion script
         run: python src/data_ingestion.py
 
