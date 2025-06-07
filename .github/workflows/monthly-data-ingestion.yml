@@ -41,6 +41,22 @@ jobs:
       - name: Run data ingestion script
         run: python src/data_ingestion.py
 
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add and commit new data
+        run: |
+          git add data/bronze/clean_jobs.csv
+          git commit -m "chore: update clean_jobs.csv from monthly ingestion [skip ci]" || echo "No changes to commit"
+
+      - name: Push changes
+        run: git push
+        env:
+          # This uses the default GITHUB_TOKEN provided by Actions
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload bronze data as artifact (optional)
         uses: actions/upload-artifact@v4
         with:
