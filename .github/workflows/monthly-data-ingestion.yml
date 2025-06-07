@@ -24,13 +24,15 @@ jobs:
           pip install kaggle duckdb
 
       - name: Set up Kaggle API credentials
+        env:
+            KAGGLE_JSON: ${{ secrets.KAGGLE_JSON }}
         run: |
             mkdir -p ~/.kaggle
-            if [[ -z "${{ secrets.KAGGLE_JSON }}" ]]; then
+            if [ -z "$KAGGLE_JSON" ]; then
             echo "KAGGLE_JSON secret is missing or empty."
             exit 1
             fi
-            echo "${{ secrets.KAGGLE_JSON }}" > ~/.kaggle/kaggle.json
+            echo "$KAGGLE_JSON" > ~/.kaggle/kaggle.json
             chmod 600 ~/.kaggle/kaggle.json
 
       - name: Run data ingestion script
