@@ -25,9 +25,13 @@ jobs:
 
       - name: Set up Kaggle API credentials
         run: |
-          mkdir -p ~/.kaggle
-          echo "${{ secrets.KAGGLE_JSON }}" > ~/.kaggle/kaggle.json
-          chmod 600 ~/.kaggle/kaggle.json
+            mkdir -p ~/.kaggle
+            if [[ -z "${{ secrets.KAGGLE_JSON }}" ]]; then
+            echo "KAGGLE_JSON secret is missing or empty."
+            exit 1
+            fi
+            echo "${{ secrets.KAGGLE_JSON }}" > ~/.kaggle/kaggle.json
+            chmod 600 ~/.kaggle/kaggle.json
 
       - name: Run data ingestion script
         run: python src/data_ingestion.py
