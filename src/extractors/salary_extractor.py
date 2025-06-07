@@ -123,13 +123,19 @@ class SalaryExtractor:
 
     def extract_salaries(self, text: str) -> List[dict]:
         """
-        Extract salary information from text
-        Returns list of dictionaries with salary details
+        Extracts salary information from the given text using predefined regex patterns.
+        Args:
+            text (str): The input text from which to extract salary information.
+        Returns:
+            List[dict]: A list of dictionaries containing extracted salary information.
         """
         results = []
+
+        # Loop through each compiled regex pattern
         for i, pattern in enumerate(self.compiled_patterns):
             matches = pattern.finditer(text)
             for match in matches:
+                groups = match.groups()
                 salary_info = {
                     'pattern_used': i + 1,
                     'full_match': match.group(0).strip(),
@@ -141,34 +147,56 @@ class SalaryExtractor:
                     'position': (match.start(), match.end())
                 }
 
-                groups = match.groups()
+                # Pattern-specific extraction logic
+                try:
+                    if i == 0:  # Pattern 1: currency_prefix min - currency_prefix max
+                        currency1, min_sal, currency2, max_sal, period = groups
+                        salary_info['currency'] = (currency1 or currency2 or '').upper()
+                        salary_info['min_salary'] = self._normalize_number(min_sal)
+                        salary_info['max_salary'] = self._normalize_number(max_sal)
+                        salary_info['period'] = period.lower().strip() if period else None
 
-                # Extract currency (look for non-None currency groups)
-                for group in groups:
-                    if group and any(curr.lower() in group.lower() for curr in self.currency_symbols):
-                        salary_info['currency'] = group.upper().strip()
-                        break
+                    elif i == 1:  # Pattern 2: min - max currency_suffix
+                        min_sal, max_sal, currency1, currency2, period = groups
+                        salary_info['currency'] = (currency1 or currency2 or '').upper()
+                        salary_info['min_salary'] = self._normalize_number(min_sal)
+                        salary_info['max_salary'] = self._normalize_number(max_sal)
+                        salary_info['period'] = period.lower().strip() if period else None
 
-                # Extract salary amounts and period
-                salary_numbers = []
-                for group in groups:
-                    if group and self._is_number(group):
-                        salary_numbers.append(group)
-                    elif group and any(period.lower() in group.lower() for period in self.period_indicators):
-                        salary_info['period'] = group.lower().strip()
+                    elif i == 2:  # Pattern 3: currency_prefix single
+                        currency, single_sal, period = groups
+                        salary_info['currency'] = (currency or '').upper()
+                        salary_info['single_salary'] = self._normalize_number(single_sal)
+                        salary_info['period'] = period.lower().strip() if period else None
 
-                # Assign salary values
-                if len(salary_numbers) >= 2:
-                    salary_info['min_salary'] = self._normalize_number(salary_numbers[0])
-                    salary_info['max_salary'] = self._normalize_number(salary_numbers[1])
-                elif len(salary_numbers) == 1:
-                    salary_info['single_salary'] = self._normalize_number(salary_numbers[0])
+                    elif i == 3:  # Pattern 4: single currency_suffix
+                        single_sal, currency1, currency2, period = groups
+                        salary_info['currency'] = (currency1 or currency2 or '').upper()
+                        salary_info['single_salary'] = self._normalize_number(single_sal)
+                        salary_info['period'] = period.lower().strip() if period else None
 
-                if salary_info['currency'] or salary_info['min_salary'] or salary_info['single_salary']:
-                    results.append(salary_info)
+                    elif i == 4:  # Pattern 5: range with suffix
+                        min_sal, max_sal, currency1, currency2, period = groups
+                        salary_info['currency'] = (currency1 or currency2 or '').upper()
+                        salary_info['min_salary'] = self._normalize_number(min_sal)
+                        salary_info['max_salary'] = self._normalize_number(max_sal)
+                        salary_info['period'] = period.lower().strip() if period else None
 
-        # Remove duplicates and overlapping matches
+                    elif i == 5:  # Pattern 6: prefixed with "Salary:"
+                        currency1, min_sal, currency2, max_sal, period = groups
+                        salary_info['currency'] = (currency1 or currency2 or '').upper()
+                        salary_info['min_salary'] = self._normalize_number(min_sal)
+                        salary_info['max_salary'] = self._normalize_number(max_sal)
+                        salary_info['period'] = period.lower().strip() if period else None
+
+                    if salary_info['currency'] or salary_info['min_salary'] or salary_info['single_salary']:
+                        results.append(salary_info)
+
+                except Exception as e:
+                    print(f"[Warning] Pattern {i+1} failed to parse: {e}")
+
         return self._deduplicate_results(results)
+
 
     def _is_number(self, text: str) -> bool:
         """Check if text represents a salary number"""
