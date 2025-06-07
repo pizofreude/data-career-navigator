@@ -9,6 +9,20 @@ Intended to be run monthly via GitHub Actions.
 # Import necessary libraries
 import os
 import subprocess
+from kaggle.api.kaggle_api_extended import KaggleApi
+
+def test_kaggle_credentials():
+    """
+    Verifies that Kaggle credentials are valid by attempting to authenticate.
+
+    If the credentials are invalid, this function will raise an exception.
+
+    This function is intended to be used as a sanity check before attempting
+    to download data from Kaggle.
+    """
+    api = KaggleApi()
+    api.authenticate()
+    print("Kaggle credentials are valid.")
 
 def download_kaggle_csv(
     dataset="joykimaiyo18/linkedin-data-jobs-dataset",
@@ -35,8 +49,9 @@ def download_kaggle_csv(
         print(f"Downloaded {filename} to {dest_folder}")
     except subprocess.CalledProcessError as e:
         print(f"Error occurred: {e}")
-        print("Ensure Kaggle credentials are correctly configured.")
+        print("Ensure Kaggle credentials are correctly configured and the dataset is accessible.")
         raise
 
 if __name__ == "__main__":
+    test_kaggle_credentials()
     download_kaggle_csv()
