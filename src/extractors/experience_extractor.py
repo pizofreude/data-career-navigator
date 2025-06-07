@@ -7,7 +7,7 @@ import re
 
 def categorize_experience(title: str, description: str) -> str:
     """
-    Given a job title and job description, return one of:
+    Given a job title (from 'title' column) and job description (from 'description' column), return one of:
       - 'Entry-Level'
       - 'Mid-Level'
       - 'Senior'
