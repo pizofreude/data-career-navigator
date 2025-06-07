@@ -27,7 +27,7 @@ def test_kaggle_credentials():
 def download_kaggle_csv(
     dataset="joykimaiyo18/linkedin-data-jobs-dataset",
     filename="clean_jobs.csv",
-    dest_folder="../data/bronze"
+    dest_folder="data/bronze" 
 ):
     """
     Downloads a CSV file from a Kaggle dataset using the Kaggle API.
@@ -36,6 +36,10 @@ def download_kaggle_csv(
         dataset (str): Kaggle dataset identifier.
         filename (str): Name of the file to download.
         dest_folder (str): Directory to save the downloaded file.
+        Our script is saving the file to ../data/bronze/clean_jobs.csv (relative to src),
+        which is actually data/bronze/clean_jobs.csv at the repo root when run locally,
+        but in GitHub Actions, the working directory is the repo root, so ../data/bronze
+        points outside the repo.
     """
     os.makedirs(dest_folder, exist_ok=True)
     # Download using Kaggle CLI
