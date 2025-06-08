@@ -30,6 +30,7 @@ class SalaryExtractor:
     def __init__(self):
         # Major currency symbols and codes
         self.currency_symbols = {
+            'MX$',
             # Symbols
             '$', '£', '€', '¥', '₹', '₽', '₩', '₪', '₦', '₡', '₴', '₨', '₵', '₫', '₮', '₯', '₰', '₱', '₲', '₳', '₴', '₵', '₶', '₷', '₸', '₹', '₺', '₻', '₼', '₽', '₾', '₿', '＄', '￠', '￡', '￢', '￣', '￤', '￥', '￦',
             # Major currency codes with variations
@@ -90,20 +91,23 @@ class SalaryExtractor:
         period_pattern = '|'.join(re.escape(period) for period in self.period_indicators)
 
         # Number patterns for different formats
-        # Supports: 50000, 50,000, 50.000, 50K, 50k, 5.5K, 1.5M, etc.
-        number_pattern = r'(?:\d{1,3}(?:[.,]\s?\d{3})*(?:\.\d{1,2})?[kKmM]?|\d+(?:\.\d{1,2})?[kKmM]?)'
+        # Improved: match full numbers with thousands separators, e.g. 235,200 or 252,806
+        number_pattern = r'(?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:\.\d+)?[kKmM]?'
 
-        # Currency symbol/code pattern (optional whitespace)
-        currency_prefix = rf'(?:({currency_pattern})\s*)'
-        currency_suffix = rf'(?:\s*({currency_pattern}))'
+        # Currency symbol/code pattern (allow NO whitespace between currency and number)
+        currency_prefix = rf'(?:({currency_pattern}))'
+        currency_suffix = rf'(?:({currency_pattern}))'
 
         # Build comprehensive patterns
+        # Debug: print the actual regex for Pattern 1 and the currency alternation
+        print("[DEBUG] Pattern 1 regex:", self.patterns[0] if hasattr(self, 'patterns') else 'not built yet')
+        print("[DEBUG] Currency alternation:", currency_pattern)
         self.patterns = [
-            # Pattern 1: Currency prefix with range (e.g., $50,000 - $80,000)
-            rf'{currency_prefix}?({number_pattern})\s*[-–—to]\s*{currency_prefix}?({number_pattern})(?:\s*({period_pattern}))?',
+            # Pattern 1: Currency prefix required for both numbers (e.g., MX$235,200- MX$252,806)
+            rf'{currency_prefix}({number_pattern})\s*[-–—to]+\s*{currency_prefix}({number_pattern})(?:\s*({period_pattern}))?',
 
-            # Pattern 2: Currency suffix with range (e.g., 50,000 - 80,000 USD)
-            rf'({number_pattern})\s*[-–—to]\s*({number_pattern})\s*{currency_suffix}(?:\s*({period_pattern}))?',
+            # Pattern 2: Currency suffix with range (e.g., 50,000-80,000 USD)
+            rf'({number_pattern})\s*[-–—to]?\s*({number_pattern})\s*{currency_suffix}(?:\s*({period_pattern}))?',
 
             # Pattern 3: Single salary with currency prefix (e.g., $75,000 annually)
             rf'{currency_prefix}({number_pattern})(?:\s*({period_pattern}))?',
@@ -124,76 +128,125 @@ class SalaryExtractor:
     def extract_salaries(self, text: str) -> List[dict]:
         """
         Extracts salary information from the given text using predefined regex patterns.
-        Args:
-            text (str): The input text from which to extract salary information.
-        Returns:
-            List[dict]: A list of dictionaries containing extracted salary information.
+        Only considers sentences with salary-related keywords and ignores funding/investment contexts.
         """
         results = []
 
-        # Loop through each compiled regex pattern
+        salary_keywords = [
+            "salary", "compensation", "pay", "base pay", "base salary", "annual", "per year", "per annum",
+            "yearly", "monthly", "per month", "hourly", "per hour", "per week", "per day", "per diem",
+            "remuneration", "wage", "package", "rate", "earn", "income"
+        ]
+        funding_keywords = [
+            "funding", "raised", "investment", "series a", "series b", "series c", "venture", "capital",
+            "backed", "round", "financing", "investor", "acrew", "sequoia", "bain", "homebrew", "visa", "million", "billion"
+        ]
+
+        # Split text into sentences (more granular than lines/paragraphs)
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        candidate_sentences = []
+        for sent in sentences:
+            lwr = sent.lower()
+            if any(kw in lwr for kw in salary_keywords) and not any(fk in lwr for fk in funding_keywords):
+                candidate_sentences.append(sent)
+        # If no candidate sentences, fallback to all sentences
+        if not candidate_sentences:
+            candidate_sentences = sentences
+
+        # Run extraction only on candidate sentences
         for i, pattern in enumerate(self.compiled_patterns):
-            matches = pattern.finditer(text)
-            for match in matches:
-                groups = match.groups()
-                salary_info = {
-                    'pattern_used': i + 1,
-                    'full_match': match.group(0).strip(),
-                    'currency': None,
-                    'min_salary': None,
-                    'max_salary': None,
-                    'single_salary': None,
-                    'period': None,
-                    'position': (match.start(), match.end())
-                }
+            for sent in candidate_sentences:
+                matches = pattern.finditer(sent)
+                for match in matches:
+                    groups = match.groups()
+                    salary_info = {
+                        'pattern_used': i + 1,
+                        'full_match': match.group(0).strip(),
+                        'currency': None,
+                        'min_salary': None,
+                        'max_salary': None,
+                        'single_salary': None,
+                        'period': None,
+                        'position': (match.start(), match.end())
+                    }
 
-                # Pattern-specific extraction logic
-                try:
-                    if i == 0:  # Pattern 1: currency_prefix min - currency_prefix max
-                        currency1, min_sal, currency2, max_sal, period = groups
-                        salary_info['currency'] = (currency1 or currency2 or '').upper()
-                        salary_info['min_salary'] = self._normalize_number(min_sal)
-                        salary_info['max_salary'] = self._normalize_number(max_sal)
-                        salary_info['period'] = period.lower().strip() if period else None
+                    # Pattern-specific extraction logic
+                    try:
+                        # Debug print for MX$ pattern matches
+                        if 'MX$' in match.group(0) or 'mx$' in match.group(0):
+                            print(f"[DEBUG] Pattern {i+1} match: {match.group(0)}")
+                            print(f"[DEBUG] Groups: {groups}")
+                        # Updated group unpacking to match the regex patterns in _build_pattern
+                        if i == 0:  # Pattern 1: currency prefix with range
+                            currency1, min_sal, currency2, max_sal, period = (groups + (None,)*5)[:5]
+                            currency = currency1 or currency2
+                            salary_info['currency'] = self._normalize_currency(currency)
+                            salary_info['min_salary'] = self._normalize_number(min_sal)
+                            salary_info['max_salary'] = self._normalize_number(max_sal)
+                            salary_info['period'] = period.lower().strip() if period else None
 
-                    elif i == 1:  # Pattern 2: min - max currency_suffix
-                        min_sal, max_sal, currency1, currency2, period = groups
-                        salary_info['currency'] = (currency1 or currency2 or '').upper()
-                        salary_info['min_salary'] = self._normalize_number(min_sal)
-                        salary_info['max_salary'] = self._normalize_number(max_sal)
-                        salary_info['period'] = period.lower().strip() if period else None
+                        elif i == 1:  # Pattern 2: currency suffix with range
+                            min_sal, max_sal, currency, period = (groups + (None,)*4)[:4]
+                            salary_info['currency'] = self._normalize_currency(currency)
+                            salary_info['min_salary'] = self._normalize_number(min_sal)
+                            salary_info['max_salary'] = self._normalize_number(max_sal)
+                            salary_info['period'] = period.lower().strip() if period else None
 
-                    elif i == 2:  # Pattern 3: currency_prefix single
-                        currency, single_sal, period = groups
-                        salary_info['currency'] = (currency or '').upper()
-                        salary_info['single_salary'] = self._normalize_number(single_sal)
-                        salary_info['period'] = period.lower().strip() if period else None
+                        elif i == 2:  # Pattern 3: single salary with currency prefix
+                            currency, single_sal, period = (groups + (None,)*3)[:3]
+                            salary_info['currency'] = self._normalize_currency(currency)
+                            salary_info['single_salary'] = self._normalize_number(single_sal)
+                            salary_info['period'] = period.lower().strip() if period else None
 
-                    elif i == 3:  # Pattern 4: single currency_suffix
-                        single_sal, currency1, currency2, period = groups
-                        salary_info['currency'] = (currency1 or currency2 or '').upper()
-                        salary_info['single_salary'] = self._normalize_number(single_sal)
-                        salary_info['period'] = period.lower().strip() if period else None
+                        elif i == 3:  # Pattern 4: single salary with currency suffix
+                            single_sal, currency, period = (groups + (None,)*3)[:3]
+                            salary_info['currency'] = self._normalize_currency(currency)
+                            salary_info['single_salary'] = self._normalize_number(single_sal)
+                            salary_info['period'] = period.lower().strip() if period else None
 
-                    elif i == 4:  # Pattern 5: range with suffix
-                        min_sal, max_sal, currency1, currency2, period = groups
-                        salary_info['currency'] = (currency1 or currency2 or '').upper()
-                        salary_info['min_salary'] = self._normalize_number(min_sal)
-                        salary_info['max_salary'] = self._normalize_number(max_sal)
-                        salary_info['period'] = period.lower().strip() if period else None
+                        elif i == 4:  # Pattern 5: salary range without explicit currency in between
+                            min_sal, max_sal, currency, period = (groups + (None,)*4)[:4]
+                            salary_info['currency'] = self._normalize_currency(currency)
+                            salary_info['min_salary'] = self._normalize_number(min_sal)
+                            salary_info['max_salary'] = self._normalize_number(max_sal)
+                            salary_info['period'] = period.lower().strip() if period else None
 
-                    elif i == 5:  # Pattern 6: prefixed with "Salary:"
-                        currency1, min_sal, currency2, max_sal, period = groups
-                        salary_info['currency'] = (currency1 or currency2 or '').upper()
-                        salary_info['min_salary'] = self._normalize_number(min_sal)
-                        salary_info['max_salary'] = self._normalize_number(max_sal)
-                        salary_info['period'] = period.lower().strip() if period else None
+                        elif i == 5:  # Pattern 6: complex patterns like "Salary: MYR 5,000 - 8,000"
+                            currency1, min_sal, currency2, max_sal, period = (groups + (None,)*5)[:5]
+                            currency = currency1 or currency2
+                            salary_info['currency'] = self._normalize_currency(currency)
+                            salary_info['min_salary'] = self._normalize_number(min_sal)
+                            salary_info['max_salary'] = self._normalize_number(max_sal)
+                            salary_info['period'] = period.lower().strip() if period else None
 
-                    if salary_info['currency'] or salary_info['min_salary'] or salary_info['single_salary']:
-                        results.append(salary_info)
+                        # Only append if we have a currency and at least one salary value
+                        if salary_info['currency'] and (salary_info['min_salary'] or salary_info['max_salary'] or salary_info['single_salary']):
+                            results.append(salary_info)
 
-                except Exception as e:
-                    print(f"[Warning] Pattern {i+1} failed to parse: {e}")
+                    except Exception as e:
+                        print(f"[Warning] Pattern {i+1} failed to parse: {e}")
+
+        # Always return a list, even if empty
+        return self._deduplicate_results(results)
+    def _normalize_currency(self, currency):
+        if not currency:
+            return None
+        c = currency.upper().replace(' ', '')
+        # Map common currency symbols/codes to ISO codes
+        mapping = {
+            'MX$': 'MXN', 'MXN': 'MXN', '$': 'USD', 'USD': 'USD', 'US$': 'USD',
+            '€': 'EUR', 'EUR': 'EUR', '£': 'GBP', 'GBP': 'GBP', '¥': 'JPY', 'JPY': 'JPY',
+            'C$': 'CAD', 'CAD': 'CAD', 'A$': 'AUD', 'AUD': 'AUD',
+            'MYR': 'MYR', 'RM': 'MYR', 'SGD': 'SGD', 'S$': 'SGD',
+            'IDR': 'IDR', 'RP': 'IDR', '₱': 'PHP', 'PHP': 'PHP',
+            'VND': 'VND', '₫': 'VND', 'INR': 'INR', '₹': 'INR',
+            'CNY': 'CNY', 'RMB': 'CNY', 'KRW': 'KRW', '₩': 'KRW',
+            'BRL': 'BRL', 'R$': 'BRL', 'ZAR': 'ZAR', 'R': 'ZAR',
+            'THB': 'THB', '฿': 'THB', 'PLN': 'PLN', 'CZK': 'CZK', 'HUF': 'HUF',
+            'TRY': 'TRY', '₺': 'TRY', 'ILS': 'ILS', '₪': 'ILS',
+        }
+        # Try to match the mapping, else return the cleaned code
+        return mapping.get(c, c)
 
         return self._deduplicate_results(results)
 
@@ -293,33 +346,21 @@ class SalaryETL:
             and now - self._exchange_rates_cache_time < self._cache_ttl
         ):
             return self._exchange_rates_cache
-
+    
         json_path = os.path.join(os.path.dirname(__file__), "exchange_rates_usd.json")
         try:
             with open(json_path, "r") as f:
                 rates = json.load(f)
-            # Only keep rates for known currencies (for backward compatibility)
-            known_currencies = [
-                'USD', 'MYR', 'SGD', 'EUR', 'GBP', 'INR', 'THB', 'IDR', 'PHP',
-                'VND', 'CNY', 'JPY', 'AUD', 'CAD', 'CHF', 'HKD', 'KRW',
-                'AED', 'SAR', 'QAR', 'KWD',
-            ]
-            filtered_rates = {k: rates[k] for k in known_currencies if k in rates}
-            filtered_rates['USD'] = 1.0
-            self._exchange_rates_cache = filtered_rates
+            # No filtering: use all available rates
+            rates['USD'] = 1.0
+            self._exchange_rates_cache = rates
             self._exchange_rates_cache_time = now
-            return filtered_rates
+            return rates
         except Exception as e:
             print(f"Warning: Could not load exchange rates from exchange_rates_usd.json: {e}")
-
-        # Fallback to static rates if file is missing or invalid
-        return {
-            'USD': 1.0, 'MYR': 0.21, 'SGD': 0.74, 'EUR': 1.09, 'GBP': 1.27,
-            'INR': 0.012, 'THB': 0.028, 'IDR': 0.000066, 'PHP': 0.018,
-            'VND': 0.000040, 'CNY': 0.14, 'JPY': 0.0067, 'AUD': 0.66,
-            'CAD': 0.73, 'CHF': 1.11, 'HKD': 0.13, 'KRW': 0.00075,
-            'AED': 0.27, 'SAR': 0.27, 'QAR': 0.27, 'KWD': 3.28,
-        }
+    
+        # Fallback to static rates (optional: you can expand this to all 161 if you want)
+        return {'USD': 1.0}
 
     def process_job_dataframe(self, df, text_column='description', include_title=True, title_column='title'):
         """
@@ -351,108 +392,9 @@ class SalaryETL:
             df[col] = None
 
         exchange_rates = self.get_exchange_rates_to_usd()
-        for idx, row in df.iterrows():
-            text_to_search = ''
-            if pd.notna(row.get(text_column, '')):
-                text_to_search = row[text_column]
-            if include_title and title_column in df.columns and pd.notna(row.get(title_column, '')):
-                text_to_search = f"{row[title_column]} {text_to_search}"
+        MAX_REASONABLE_SALARY = 1_000_000  # adjust as needed
 
-            salary_results = self.extractor.extract_salaries(text_to_search)
-            if salary_results:
-                best_result = self._select_best_salary_result(salary_results)
-                df.loc[idx, 'has_salary'] = True
-                df.loc[idx, 'currency'] = best_result['currency']
-                df.loc[idx, 'min_salary_raw'] = best_result['min_salary']
-                df.loc[idx, 'max_salary_raw'] = best_result['max_salary']
-                df.loc[idx, 'single_salary_raw'] = best_result['single_salary']
-                df.loc[idx, 'salary_period'] = best_result['period']
-
-                min_usd, max_usd, avg_usd = self._convert_to_annual_usd(best_result, exchange_rates)
-                df.loc[idx, 'min_salary_annual_usd'] = min_usd
-                df.loc[idx, 'max_salary_annual_usd'] = max_usd
-                df.loc[idx, 'avg_salary_annual_usd'] = avg_usd
-
-                df.loc[idx, 'salary_confidence'] = self._calculate_confidence(best_result)
-            else:
-                df.loc[idx, 'has_salary'] = False
-
-        # --- Handle missing currencies after extraction ---
-        def infer_currency(row):
-            # If currency is present, keep it
-            if pd.notna(row['currency']) and row['currency']:
-                return row['currency']
-            # Only infer if there is a salary present
-            if (
-                pd.notna(row['min_salary_raw']) or
-                pd.notna(row['max_salary_raw']) or
-                pd.notna(row['single_salary_raw'])
-            ):
-                # Infer from location or source
-                location = str(row.get('location', '')).lower()
-                source = str(row.get('source', '')).lower()
-                # Simple heuristics, can be expanded
-                if 'malaysia' in location or 'kuala lumpur' in location or 'my' in location or 'malaysia' in source:
-                    return 'MYR'
-                if 'singapore' in location or 'sg' in location or 'singapore' in source:
-                    return 'SGD'
-                if 'indonesia' in location or 'jakarta' in location or 'id' in location or 'indonesia' in source:
-                    return 'IDR'
-                if 'thailand' in location or 'bangkok' in location or 'thailand' in source:
-                    return 'THB'
-                if 'philippines' in location or 'manila' in location or 'ph' in location or 'philippines' in source:
-                    return 'PHP'
-                if 'vietnam' in location or 'ho chi minh' in location or 'vn' in location or 'vietnam' in source:
-                    return 'VND'
-                if 'united states' in location or 'usa' in location or 'us' in location or 'united states' in source:
-                    return 'USD'
-                if 'europe' in location or 'germany' in location or 'france' in location or 'europe' in source:
-                    return 'EUR'
-                if 'uk' in location or 'london' in location or 'united kingdom' in location or 'uk' in source:
-                    return 'GBP'
-                # Default fallback
-                return 'USD'
-            return row['currency']
-
-        df['currency'] = df.apply(infer_currency, axis=1)
-
-        # --- Handle missing and non-standard currencies after extraction ---
-        def infer_currency(row):
-            # If currency is present and valid, keep it
-            if pd.notna(row['currency']) and row['currency']:
-                return row['currency']
-            # Only infer if there is a salary present
-            if (
-                pd.notna(row['min_salary_raw']) or
-                pd.notna(row['max_salary_raw']) or
-                pd.notna(row['single_salary_raw'])
-            ):
-                location = str(row.get('location', '')).lower()
-                source = str(row.get('source', '')).lower()
-                if 'malaysia' in location or 'kuala lumpur' in location or 'my' in location or 'malaysia' in source:
-                    return 'MYR'
-                if 'singapore' in location or 'sg' in location or 'singapore' in source:
-                    return 'SGD'
-                if 'indonesia' in location or 'jakarta' in location or 'id' in location or 'indonesia' in source:
-                    return 'IDR'
-                if 'thailand' in location or 'bangkok' in location or 'thailand' in source:
-                    return 'THB'
-                if 'philippines' in location or 'manila' in location or 'ph' in location or 'philippines' in source:
-                    return 'PHP'
-                if 'vietnam' in location or 'ho chi minh' in location or 'vn' in location or 'vietnam' in source:
-                    return 'VND'
-                if 'united states' in location or 'usa' in location or 'us' in location or 'united states' in source:
-                    return 'USD'
-                if 'europe' in location or 'germany' in location or 'france' in location or 'europe' in source:
-                    return 'EUR'
-                if 'uk' in location or 'london' in location or 'united kingdom' in location or 'uk' in source:
-                    return 'GBP'
-                return 'USD'
-            return row['currency']
-
-        df['currency'] = df.apply(infer_currency, axis=1)
-
-        # --- Standardize all currency values to ISO codes ---
+        # --- Add MXN to currency_map and iso_codes ---
         currency_map = {
             '$': 'USD', 'usd': 'USD', 'us$': 'USD', 's$': 'SGD', '£': 'GBP', 'gbp': 'GBP', '€': 'EUR', 'eur': 'EUR',
             'rs': 'INR', '₹': 'INR', 'inr': 'INR',
@@ -464,23 +406,93 @@ class SalaryETL:
             'vnd': 'VND', '₫': 'VND',
             'r': 'ZAR', 'zar': 'ZAR',
             'top': 'TOP',
+            # Robust MXN mapping
+            'mx$': 'MXN', 'mxn': 'MXN', 'mx': 'MXN', 'mx pesos': 'MXN', 'mexican peso': 'MXN', 'mexican pesos': 'MXN',
+            # Add more variants for robustness
             'k': None, 'm': None, '': None, None: None
         }
-        iso_codes = {'USD','MYR','SGD','EUR','GBP','INR','THB','IDR','PHP','VND','ZAR','TOP'}
+        iso_codes = {'USD','MYR','SGD','EUR','GBP','INR','THB','IDR','PHP','VND','ZAR','TOP','MXN'}
 
+        # Track which rows have a valid extracted salary+currency
+        extracted_currency_mask = []
+
+        for idx, row in df.iterrows():
+            text_to_search = ''
+            if pd.notna(row.get(text_column, '')):
+                text_to_search = row[text_column]
+            if include_title and title_column in df.columns and pd.notna(row.get(title_column, '')):
+                text_to_search = f"{row[title_column]} {text_to_search}"
+
+            salary_results = self.extractor.extract_salaries(text_to_search)
+            filtered_results = []
+            for r in salary_results:
+                valid = True
+                for k in ['single_salary', 'min_salary', 'max_salary']:
+                    v = r.get(k)
+                    if v is not None and v > MAX_REASONABLE_SALARY:
+                        valid = False
+                if valid:
+                    filtered_results.append(r)
+            if filtered_results:
+                best_result = self._select_best_salary_result(filtered_results)
+                currency_from_salary = best_result.get('currency')
+                if currency_from_salary and currency_from_salary.strip():
+                    df.loc[idx, 'currency'] = currency_from_salary.strip().lower()
+                else:
+                    df.loc[idx, 'currency'] = None  # will be inferred later if needed
+
+                for k in ['min_salary', 'max_salary', 'single_salary']:
+                    v = best_result.get(k)
+                    if v is not None and v > MAX_REASONABLE_SALARY:
+                        best_result[k] = None
+                df.loc[idx, 'has_salary'] = True
+                df.loc[idx, 'min_salary_raw'] = best_result['min_salary']
+                df.loc[idx, 'max_salary_raw'] = best_result['max_salary']
+                df.loc[idx, 'single_salary_raw'] = best_result['single_salary']
+                df.loc[idx, 'salary_period'] = best_result['period']
+
+                min_usd, max_usd, avg_usd = self._convert_to_annual_usd(best_result, exchange_rates)
+                for col, val in zip(['min_salary_annual_usd', 'max_salary_annual_usd', 'avg_salary_annual_usd'],
+                                   [min_usd, max_usd, avg_usd]):
+                    if val is not None and val > MAX_REASONABLE_SALARY:
+                        df.loc[idx, col] = None
+                    else:
+                        df.loc[idx, col] = val
+
+                df.loc[idx, 'salary_confidence'] = self._calculate_confidence(best_result)
+                # Mark this row as having an extracted salary+currency
+                extracted_currency_mask.append(True)
+            else:
+                df.loc[idx, 'has_salary'] = False
+                for col in ['currency', 'min_salary_raw', 'max_salary_raw', 'single_salary_raw',
+                            'salary_period', 'min_salary_annual_usd', 'max_salary_annual_usd',
+                            'avg_salary_annual_usd', 'salary_confidence']:
+                    df.loc[idx, col] = None
+                extracted_currency_mask.append(False)
+
+        # --- Standardize all currency values to ISO codes ---
         def standardize_currency(val):
             if not val or str(val).strip() == '' or str(val).lower() == 'none':
                 return None
             v = str(val).strip().lower()
-            # Remove trailing punctuation (e.g. "$,", "$.", etc.)
             v = v.rstrip('.,')
+            # Direct match
             if v in currency_map and currency_map[v]:
                 return currency_map[v]
-            # Already ISO code
+            # Handle common MXN/MX$ patterns
+            if v.startswith('mx$') or v.startswith('mxn') or v.startswith('mx '):
+                return 'MXN'
+            if 'mexican peso' in v or 'mexican pesos' in v:
+                return 'MXN'
+            # Try to match with spaces removed
+            v_nospace = v.replace(' ', '')
+            if v_nospace in currency_map and currency_map[v_nospace]:
+                return currency_map[v_nospace]
+            # ISO code direct
             if v.upper() in iso_codes:
                 return v.upper()
-            # Try to extract from symbol at start (e.g. "$", "£", "€")
-            if v[0] in currency_map and currency_map[v[0]]:
+            # Try first character (for symbols)
+            if v and v[0] in currency_map and currency_map[v[0]]:
                 return currency_map[v[0]]
             return None
 
@@ -493,8 +505,11 @@ class SalaryETL:
             from countryinfo import CountryInfo
             import time
 
-            # Only process rows where currency is still missing or empty
-            missing_currency_mask = (df['currency'].isnull()) | (df['currency'] == '') | (df['currency'].str.lower() == 'none')
+            # Only process rows where currency is still missing or empty AND no extracted salary/currency
+            missing_currency_mask = (
+                (df['currency'].isnull()) | (df['currency'] == '') | (df['currency'].str.lower() == 'none')
+            ) & (~pd.Series(extracted_currency_mask))
+
             locations_to_lookup = df.loc[missing_currency_mask, 'location'].fillna('').unique()
 
             # Cache for location->country and country->currency
@@ -531,6 +546,7 @@ class SalaryETL:
                     country_currency_cache[country] = None
 
             def geo_currency_fallback(row):
+                # Only fallback if currency is missing and no extracted salary/currency
                 if row['currency'] and str(row['currency']).strip().upper() not in ('', 'NONE', 'NAN'):
                     return row['currency']
                 loc_key = str(row.get('location', '')).strip().lower()
@@ -541,10 +557,9 @@ class SalaryETL:
                         return currency.upper()
                 return 'USD'
 
-            df['currency'] = df.apply(geo_currency_fallback, axis=1)
+            df.loc[missing_currency_mask, 'currency'] = df[missing_currency_mask].apply(geo_currency_fallback, axis=1)
         except ImportError:
-            # If geopy or countryinfo not installed, skip this step
-            pass
+            print("Warning: geopy or countryinfo not installed, skipping geocoding fallback for currencies.")
 
         return df
 
@@ -626,6 +641,8 @@ def test_salary_extractor():
     """
     extractor = SalaryExtractor()
     test_texts = [
+        # Test for MX$ range
+        "The salary range for this role is MX$235,200- MX$252,806.",
         "Software Engineer - Salary: MYR 8,000 - 12,000 per month",
         "We offer $80,000 - $120,000 annually",
         "Compensation: SGD 5,500 monthly",
@@ -652,7 +669,7 @@ def test_salary_extractor():
 
     print("=== Enhanced Salary Extraction Test Results ===\n")
     for i, text in enumerate(test_texts, 1):
-        print(f"Test {i}: {text}")
+        print(f"Test {i}: {text!r}")
         results = extractor.extract_salaries(text)
         if results:
             for j, result in enumerate(results):
