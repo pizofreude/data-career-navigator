@@ -335,6 +335,13 @@ class SalaryETL:
             DataFrame with added salary columns
         """
         df = df.copy()
+
+        # --- Normalize text fields for extraction ---
+        if title_column in df.columns:
+            df[title_column] = df[title_column].fillna('').astype(str).str.strip()
+        if text_column in df.columns:
+            df[text_column] = df[text_column].fillna('').astype(str).str.strip()
+
         salary_columns = [
             'has_salary', 'currency', 'min_salary_raw', 'max_salary_raw',
             'single_salary_raw', 'salary_period', 'min_salary_annual_usd',
@@ -369,6 +376,176 @@ class SalaryETL:
                 df.loc[idx, 'salary_confidence'] = self._calculate_confidence(best_result)
             else:
                 df.loc[idx, 'has_salary'] = False
+
+        # --- Handle missing currencies after extraction ---
+        def infer_currency(row):
+            # If currency is present, keep it
+            if pd.notna(row['currency']) and row['currency']:
+                return row['currency']
+            # Only infer if there is a salary present
+            if (
+                pd.notna(row['min_salary_raw']) or
+                pd.notna(row['max_salary_raw']) or
+                pd.notna(row['single_salary_raw'])
+            ):
+                # Infer from location or source
+                location = str(row.get('location', '')).lower()
+                source = str(row.get('source', '')).lower()
+                # Simple heuristics, can be expanded
+                if 'malaysia' in location or 'kuala lumpur' in location or 'my' in location or 'malaysia' in source:
+                    return 'MYR'
+                if 'singapore' in location or 'sg' in location or 'singapore' in source:
+                    return 'SGD'
+                if 'indonesia' in location or 'jakarta' in location or 'id' in location or 'indonesia' in source:
+                    return 'IDR'
+                if 'thailand' in location or 'bangkok' in location or 'thailand' in source:
+                    return 'THB'
+                if 'philippines' in location or 'manila' in location or 'ph' in location or 'philippines' in source:
+                    return 'PHP'
+                if 'vietnam' in location or 'ho chi minh' in location or 'vn' in location or 'vietnam' in source:
+                    return 'VND'
+                if 'united states' in location or 'usa' in location or 'us' in location or 'united states' in source:
+                    return 'USD'
+                if 'europe' in location or 'germany' in location or 'france' in location or 'europe' in source:
+                    return 'EUR'
+                if 'uk' in location or 'london' in location or 'united kingdom' in location or 'uk' in source:
+                    return 'GBP'
+                # Default fallback
+                return 'USD'
+            return row['currency']
+
+        df['currency'] = df.apply(infer_currency, axis=1)
+
+        # --- Handle missing and non-standard currencies after extraction ---
+        def infer_currency(row):
+            # If currency is present and valid, keep it
+            if pd.notna(row['currency']) and row['currency']:
+                return row['currency']
+            # Only infer if there is a salary present
+            if (
+                pd.notna(row['min_salary_raw']) or
+                pd.notna(row['max_salary_raw']) or
+                pd.notna(row['single_salary_raw'])
+            ):
+                location = str(row.get('location', '')).lower()
+                source = str(row.get('source', '')).lower()
+                if 'malaysia' in location or 'kuala lumpur' in location or 'my' in location or 'malaysia' in source:
+                    return 'MYR'
+                if 'singapore' in location or 'sg' in location or 'singapore' in source:
+                    return 'SGD'
+                if 'indonesia' in location or 'jakarta' in location or 'id' in location or 'indonesia' in source:
+                    return 'IDR'
+                if 'thailand' in location or 'bangkok' in location or 'thailand' in source:
+                    return 'THB'
+                if 'philippines' in location or 'manila' in location or 'ph' in location or 'philippines' in source:
+                    return 'PHP'
+                if 'vietnam' in location or 'ho chi minh' in location or 'vn' in location or 'vietnam' in source:
+                    return 'VND'
+                if 'united states' in location or 'usa' in location or 'us' in location or 'united states' in source:
+                    return 'USD'
+                if 'europe' in location or 'germany' in location or 'france' in location or 'europe' in source:
+                    return 'EUR'
+                if 'uk' in location or 'london' in location or 'united kingdom' in location or 'uk' in source:
+                    return 'GBP'
+                return 'USD'
+            return row['currency']
+
+        df['currency'] = df.apply(infer_currency, axis=1)
+
+        # --- Standardize all currency values to ISO codes ---
+        currency_map = {
+            '$': 'USD', 'usd': 'USD', 'us$': 'USD', 's$': 'SGD', '£': 'GBP', 'gbp': 'GBP', '€': 'EUR', 'eur': 'EUR',
+            'rs': 'INR', '₹': 'INR', 'inr': 'INR',
+            'rm': 'MYR', 'myr': 'MYR',
+            'sgd': 'SGD',
+            'idr': 'IDR', 'rp': 'IDR',
+            'thb': 'THB', '฿': 'THB',
+            'php': 'PHP', '₱': 'PHP',
+            'vnd': 'VND', '₫': 'VND',
+            'r': 'ZAR', 'zar': 'ZAR',
+            'top': 'TOP',
+            'k': None, 'm': None, '': None, None: None
+        }
+        iso_codes = {'USD','MYR','SGD','EUR','GBP','INR','THB','IDR','PHP','VND','ZAR','TOP'}
+
+        def standardize_currency(val):
+            if not val or str(val).strip() == '' or str(val).lower() == 'none':
+                return None
+            v = str(val).strip().lower()
+            # Remove trailing punctuation (e.g. "$,", "$.", etc.)
+            v = v.rstrip('.,')
+            if v in currency_map and currency_map[v]:
+                return currency_map[v]
+            # Already ISO code
+            if v.upper() in iso_codes:
+                return v.upper()
+            # Try to extract from symbol at start (e.g. "$", "£", "€")
+            if v[0] in currency_map and currency_map[v[0]]:
+                return currency_map[v[0]]
+            return None
+
+        df['currency'] = df['currency'].apply(standardize_currency)
+        df['currency'] = df['currency'].fillna('USD')
+
+        # --- Fallback: Use geocoding and countryinfo for any remaining missing currencies ---
+        try:
+            from geopy.geocoders import Nominatim
+            from countryinfo import CountryInfo
+            import time
+
+            # Only process rows where currency is still missing or empty
+            missing_currency_mask = (df['currency'].isnull()) | (df['currency'] == '') | (df['currency'].str.lower() == 'none')
+            locations_to_lookup = df.loc[missing_currency_mask, 'location'].fillna('').unique()
+
+            # Cache for location->country and country->currency
+            location_country_cache = {}
+            country_currency_cache = {}
+
+            geolocator = Nominatim(user_agent="salary_currency_enricher")
+
+            for loc in locations_to_lookup:
+                loc_key = loc.strip().lower()
+                if not loc_key:
+                    location_country_cache[loc_key] = None
+                    continue
+                try:
+                    geo = geolocator.geocode(loc, language='en', addressdetails=True, timeout=10)
+                    time.sleep(1)  # Be nice to the API
+                    country = None
+                    if geo and hasattr(geo, 'raw'):
+                        address = geo.raw.get('address', {})
+                        country = address.get('country')
+                    location_country_cache[loc_key] = country
+                except Exception:
+                    location_country_cache[loc_key] = None
+
+            for country in set(filter(None, location_country_cache.values())):
+                try:
+                    info = CountryInfo(country)
+                    currencies = info.currencies()
+                    if currencies:
+                        country_currency_cache[country] = currencies[0]
+                    else:
+                        country_currency_cache[country] = None
+                except Exception:
+                    country_currency_cache[country] = None
+
+            def geo_currency_fallback(row):
+                if row['currency'] and str(row['currency']).strip().upper() not in ('', 'NONE', 'NAN'):
+                    return row['currency']
+                loc_key = str(row.get('location', '')).strip().lower()
+                country = location_country_cache.get(loc_key)
+                if country:
+                    currency = country_currency_cache.get(country)
+                    if currency:
+                        return currency.upper()
+                return 'USD'
+
+            df['currency'] = df.apply(geo_currency_fallback, axis=1)
+        except ImportError:
+            # If geopy or countryinfo not installed, skip this step
+            pass
+
         return df
 
     def _select_best_salary_result(self, results):
