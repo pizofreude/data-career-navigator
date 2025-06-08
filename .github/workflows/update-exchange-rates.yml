@@ -25,15 +25,32 @@ jobs:
           EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
         run: |
           python <<EOF
-          import requests, json, os
+          import requests, json, os, sys
+          # List of all 161 standard currency codes (from your table)
+          required = [
+              "AED","AFN","ALL","AMD","ANG","AOA","ARS","AUD","AWG","AZN","BAM","BBD","BDT","BGN","BHD","BIF",
+              "BMD","BND","BOB","BRL","BSD","BTN","BWP","BYN","BZD","CAD","CDF","CHF","CLP","CNY","COP","CRC","CUP",
+              "CVE","CZK","DJF","DKK","DOP","DZD","EGP","ERN","ETB","EUR","FJD","FKP","FOK","GBP","GEL","GGP","GHS",
+              "GIP","GMD","GNF","GTQ","GYD","HKD","HNL","HRK","HTG","HUF","IDR","ILS","IMP","INR","IQD","IRR","ISK",
+              "JEP","JMD","JOD","JPY","KES","KGS","KHR","KID","KMF","KRW","KWD","KYD","KZT","LAK","LBP","LKR","LRD",
+              "LSL","LYD","MAD","MDL","MGA","MKD","MMK","MNT","MOP","MRU","MUR","MVR","MWK","MXN","MYR","MZN","NAD",
+              "NGN","NIO","NOK","NPR","NZD","OMR","PAB","PEN","PGK","PHP","PKR","PLN","PYG","QAR","RON","RSD","RUB",
+              "RWF","SAR","SBD","SCR","SDG","SEK","SGD","SHP","SLE","SLL","SOS","SRD","SSP","STN","SYP","SZL","THB",
+              "TJS","TMT","TND","TOP","TRY","TTD","TVD","TWD","TZS","UAH","UGX","USD","UYU","UZS","VES","VND","VUV",
+              "WST","XAF","XCD","XDR","XOF","XPF","YER","ZAR","ZMW","ZWL"
+          ]
           url = f"https://v6.exchangerate-api.com/v6/${{ secrets.EXCHANGE_API_KEY }}/latest/USD"
           resp = requests.get(url, timeout=10)
           data = resp.json()
           if data.get("result") == "success":
               rates = data.get("conversion_rates", {})
-              os.makedirs("src/extractors", exist_ok=True)  # Ensure the directory exists
+              missing = [c for c in required if c not in rates]
+              if missing:
+                  print(f"Missing required currencies: {missing}")
+                  sys.exit(1)
+              os.makedirs("src/extractors", exist_ok=True)
               with open("src/extractors/exchange_rates_usd.json", "w") as f:
-                  json.dump(rates, f, indent=2)
+                  json.dump(rates, f, indent=2, sort_keys=True)
           else:
               raise Exception("Failed to fetch rates: " + str(data))
           EOF
