@@ -499,15 +499,15 @@ class SalaryETL:
         df['currency_raw'] = df['currency_raw'].apply(standardize_currency)
         df['currency_raw'] = df['currency_raw'].fillna('USD')
 
-        # --- Fallback: Use geocoding and countryinfo for any remaining missing currencies ---
+        # --- Fallback: Use geocoding and countryinfo for any remaining missing currency_raw values ---
         try:
             from geopy.geocoders import Nominatim
             from countryinfo import CountryInfo
             import time
 
-            # Only process rows where currency is still missing or empty AND no extracted salary/currency
+            # Only process rows where currency_raw is still missing or empty AND no extracted salary/currency_raw
             missing_currency_mask = (
-                (df['currency'].isnull()) | (df['currency'] == '') | (df['currency'].str.lower() == 'none')
+                (df['currency_raw'].isnull()) | (df['currency_raw'] == '') | (df['currency_raw'].str.lower() == 'none')
             ) & (~pd.Series(extracted_currency_mask))
 
             locations_to_lookup = df.loc[missing_currency_mask, 'location'].fillna('').unique()
@@ -546,9 +546,9 @@ class SalaryETL:
                     country_currency_cache[country] = None
 
             def geo_currency_fallback(row):
-                # Only fallback if currency is missing and no extracted salary/currency
-                if row['currency'] and str(row['currency']).strip().upper() not in ('', 'NONE', 'NAN'):
-                    return row['currency']
+                # Only fallback if currency_raw is missing and no extracted salary/currency_raw
+                if row['currency_raw'] and str(row['currency_raw']).strip().upper() not in ('', 'NONE', 'NAN'):
+                    return row['currency_raw']
                 loc_key = str(row.get('location', '')).strip().lower()
                 country = location_country_cache.get(loc_key)
                 if country:
@@ -557,7 +557,7 @@ class SalaryETL:
                         return currency.upper()
                 return 'USD'
 
-            df.loc[missing_currency_mask, 'currency'] = df[missing_currency_mask].apply(geo_currency_fallback, axis=1)
+            df.loc[missing_currency_mask, 'currency_raw'] = df[missing_currency_mask].apply(geo_currency_fallback, axis=1)
         except ImportError:
             print("Warning: geopy or countryinfo not installed, skipping geocoding fallback for currencies.")
 
