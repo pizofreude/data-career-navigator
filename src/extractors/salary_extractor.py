@@ -384,7 +384,7 @@ class SalaryETL:
             df[text_column] = df[text_column].fillna('').astype(str).str.strip()
 
         salary_columns = [
-            'has_salary', 'currency', 'min_salary_raw', 'max_salary_raw',
+            'has_salary', 'currency_raw', 'min_salary_raw', 'max_salary_raw',
             'single_salary_raw', 'salary_period', 'min_salary_annual_usd',
             'max_salary_annual_usd', 'avg_salary_annual_usd', 'salary_confidence'
         ]
@@ -437,9 +437,9 @@ class SalaryETL:
                 best_result = self._select_best_salary_result(filtered_results)
                 currency_from_salary = best_result.get('currency')
                 if currency_from_salary and currency_from_salary.strip():
-                    df.loc[idx, 'currency'] = currency_from_salary.strip().lower()
+                    df.loc[idx, 'currency_raw'] = currency_from_salary.strip().lower()
                 else:
-                    df.loc[idx, 'currency'] = None  # will be inferred later if needed
+                    df.loc[idx, 'currency_raw'] = None  # will be inferred later if needed
 
                 for k in ['min_salary', 'max_salary', 'single_salary']:
                     v = best_result.get(k)
@@ -464,7 +464,7 @@ class SalaryETL:
                 extracted_currency_mask.append(True)
             else:
                 df.loc[idx, 'has_salary'] = False
-                for col in ['currency', 'min_salary_raw', 'max_salary_raw', 'single_salary_raw',
+                for col in ['currency_raw', 'min_salary_raw', 'max_salary_raw', 'single_salary_raw',
                             'salary_period', 'min_salary_annual_usd', 'max_salary_annual_usd',
                             'avg_salary_annual_usd', 'salary_confidence']:
                     df.loc[idx, col] = None
@@ -496,8 +496,8 @@ class SalaryETL:
                 return currency_map[v[0]]
             return None
 
-        df['currency'] = df['currency'].apply(standardize_currency)
-        df['currency'] = df['currency'].fillna('USD')
+        df['currency_raw'] = df['currency_raw'].apply(standardize_currency)
+        df['currency_raw'] = df['currency_raw'].fillna('USD')
 
         # --- Fallback: Use geocoding and countryinfo for any remaining missing currencies ---
         try:
@@ -713,7 +713,7 @@ def demo_etl_pipeline():
     etl = SalaryETL()
     processed_df = etl.process_job_dataframe(sample_jobs, text_column='job_description', title_column='job_title')
 
-    salary_cols = ['job_title', 'has_salary', 'currency', 'min_salary_raw',
+    salary_cols = ['job_title', 'has_salary', 'currency_raw', 'min_salary_raw',
                    'max_salary_raw', 'salary_period', 'avg_salary_annual_usd', 'salary_confidence']
 
     print("Processed Results:")
