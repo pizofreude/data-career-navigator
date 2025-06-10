@@ -13,5 +13,4 @@ urllib3==2.4.0
 jupyterlab==4.4.3
 geopy==2.4.1
 countryinfo==0.1.2
-beautifulsoup4==4.13.4
 selenium==4.33.0
