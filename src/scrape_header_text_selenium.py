@@ -165,12 +165,12 @@ def main():
     print(f"{len(df_new)} new job links to scrape out of {len(df)} total.")
 
     header_texts = []
-    for idx, row in df_new.iterrows():
+    for scrape_idx, (row_idx, row) in enumerate(df_new.iterrows(), 1):
         url = row.get('link')
         if not isinstance(url, str) or not url.startswith('http'):
             header_texts.append(None)
             continue
-        print(f"[{idx+1}/{len(df_new)}] Scraping: {url}")
+        print(f"[{scrape_idx}/{len(df_new)}] Scraping: {url}")
         try:
             header = scrape_linkedin_header_selenium(driver, url)
         except Exception as e:
