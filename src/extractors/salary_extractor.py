@@ -5,8 +5,9 @@
 File: salary_extractor.py
 --------------------------
 Enhanced Salary Extractor and ETL Pipeline.
-This module provides a comprehensive salary extraction tool that can handle various currency formats,
-salary ranges, and different salary periods. It includes an ETL pipeline to process job postings and
+This module provides a comprehensive salary extraction tool that can handle various
+currency formats, salary ranges, and different salary periods.
+It includes an ETL pipeline to process job postings and
 automatically extract salary information into a structured format.
 
 Usage: You can run this module directly.
@@ -14,13 +15,16 @@ Note: The test_salary_extractor() function verifies a wide range of salary forma
 and demo_etl_pipeline() shows how to apply SalaryETL to a sample DataFrame for production use.
 """
 
-import re
-from typing import List
-import pandas as pd
-import requests
+# Import necessary libraries
 import time
 import os
 import json
+import re
+import math
+from typing import List
+import pandas as pd
+from geopy.geocoders import Nominatim
+from countryinfo import CountryInfo
 
 class SalaryExtractor:
     """
@@ -98,10 +102,7 @@ class SalaryExtractor:
         currency_prefix = rf'(?:({currency_pattern}))'
         currency_suffix = rf'(?:({currency_pattern}))'
 
-        # Build comprehensive patterns
-        # Debug: print the actual regex for Pattern 1 and the currency alternation
-        print("[DEBUG] Pattern 1 regex:", self.patterns[0] if hasattr(self, 'patterns') else 'not built yet')
-        print("[DEBUG] Currency alternation:", currency_pattern)
+        # Full regex patterns for salary extraction
         self.patterns = [
             # Pattern 1: Currency prefix required for both numbers (e.g., MX$235,200- MX$252,806)
             rf'{currency_prefix}({number_pattern})\s*[-–—to]+\s*{currency_prefix}({number_pattern})(?:\s*({period_pattern}))?',
@@ -122,6 +123,11 @@ class SalaryExtractor:
             rf'(?:salary|compensation|pay|wage|income)[:]\s*{currency_prefix}?({number_pattern})\s*[-–—to]\s*{currency_prefix}?({number_pattern})(?:\s*({period_pattern}))?',
         ]
 
+    
+        # Debug: print the actual regex for Pattern 1 and the currency alternation
+        print("[DEBUG] Pattern 1 regex:", self.patterns[0] if hasattr(self, 'patterns') else 'not built yet')
+        print("[DEBUG] Currency alternation:", currency_pattern)
+
         # Compile all patterns (case-insensitive)
         self.compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.patterns]
 
@@ -129,7 +135,9 @@ class SalaryExtractor:
         """
         Extracts salary information from the given text using predefined regex patterns.
         Only considers sentences with salary-related keywords and ignores funding/investment contexts.
+        Filters out implausible salary values (zero, negative, or below a minimum threshold).
         """
+        
         results = []
 
         salary_keywords = [
@@ -142,13 +150,16 @@ class SalaryExtractor:
             "backed", "round", "financing", "investor", "acrew", "sequoia", "bain", "homebrew", "visa", "million", "billion"
         ]
 
+        # Minimum plausible salary (annualized, in any currency, before conversion)
+        MIN_REASONABLE_SALARY = 5000  # e.g., $5,000/year or equivalent
+
         # Split text into sentences (more granular than lines/paragraphs)
         sentences = re.split(r'(?<=[.!?])\s+', text)
-        candidate_sentences = []
-        for sent in sentences:
-            lwr = sent.lower()
-            if any(kw in lwr for kw in salary_keywords) and not any(fk in lwr for fk in funding_keywords):
-                candidate_sentences.append(sent)
+        candidate_sentences = [
+            sent for sent in sentences
+            if any(kw in sent.lower() for kw in salary_keywords)
+            and not any(fk in sent.lower() for fk in funding_keywords)
+        ]
         # If no candidate sentences, fallback to all sentences
         if not candidate_sentences:
             candidate_sentences = sentences
@@ -170,13 +181,10 @@ class SalaryExtractor:
                         'position': (match.start(), match.end())
                     }
 
-                    # Pattern-specific extraction logic
                     try:
-                        # Debug print for MX$ pattern matches
                         if 'MX$' in match.group(0) or 'mx$' in match.group(0):
                             print(f"[DEBUG] Pattern {i+1} match: {match.group(0)}")
                             print(f"[DEBUG] Groups: {groups}")
-                        # Updated group unpacking to match the regex patterns in _build_pattern
                         if i == 0:  # Pattern 1: currency prefix with range
                             currency1, min_sal, currency2, max_sal, period = (groups + (None,)*5)[:5]
                             currency = currency1 or currency2
@@ -219,11 +227,30 @@ class SalaryExtractor:
                             salary_info['max_salary'] = self._normalize_number(max_sal)
                             salary_info['period'] = period.lower().strip() if period else None
 
-                        # Only append if we have a currency and at least one salary value
-                        if salary_info['currency'] and (salary_info['min_salary'] or salary_info['max_salary'] or salary_info['single_salary']):
+                        # --- Guardrails for implausible values ---
+                        # Swap min/max if needed
+                        if (
+                            salary_info['min_salary'] is not None and salary_info['max_salary'] is not None and
+                            salary_info['min_salary'] > salary_info['max_salary']
+                        ):
+                            salary_info['min_salary'], salary_info['max_salary'] = salary_info['max_salary'], salary_info['min_salary']
+
+                        # Filter out zero, negative, or implausibly low values
+                        for key in ['min_salary', 'max_salary', 'single_salary']:
+                            val = salary_info[key]
+                            if val is not None:
+                                if (not isinstance(val, (int, float)) or math.isnan(val) or val < MIN_REASONABLE_SALARY):
+                                    salary_info[key] = None
+
+                        # Only append if we have a currency and at least one plausible salary value
+                        if salary_info['currency'] and (
+                            salary_info['min_salary'] is not None or
+                            salary_info['max_salary'] is not None or
+                            salary_info['single_salary'] is not None
+                        ):
                             results.append(salary_info)
 
-                    except Exception as e:
+                    except (ValueError, TypeError, AttributeError, IndexError) as e:
                         print(f"[Warning] Pattern {i+1} failed to parse: {e}")
 
         # Always return a list, even if empty
@@ -247,8 +274,6 @@ class SalaryExtractor:
         }
         # Try to match the mapping, else return the cleaned code
         return mapping.get(c, c)
-
-        return self._deduplicate_results(results)
 
 
     def _is_number(self, text: str) -> bool:
@@ -349,14 +374,14 @@ class SalaryETL:
     
         json_path = os.path.join(os.path.dirname(__file__), "exchange_rates_usd.json")
         try:
-            with open(json_path, "r") as f:
+            with open(json_path, "r", encoding="utf-8") as f:
                 rates = json.load(f)
             # No filtering: use all available rates
             rates['USD'] = 1.0
             self._exchange_rates_cache = rates
             self._exchange_rates_cache_time = now
             return rates
-        except Exception as e:
+        except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
             print(f"Warning: Could not load exchange rates from exchange_rates_usd.json: {e}")
     
         # Fallback to static rates (optional: you can expand this to all 161 if you want)
@@ -417,24 +442,49 @@ class SalaryETL:
         extracted_currency_mask = []
 
         for idx, row in df.iterrows():
-            text_to_search = ''
-            if pd.notna(row.get(text_column, '')):
-                text_to_search = row[text_column]
-            if include_title and title_column in df.columns and pd.notna(row.get(title_column, '')):
-                text_to_search = f"{row[title_column]} {text_to_search}"
+            # Try header_text first if available
+            header_text = row.get('header_text', None)
+            header_salary_results = []
+            if header_text and isinstance(header_text, str) and header_text.strip():
+                header_salary_results = self.extractor.extract_salaries(header_text)
+                # Filter out implausible values
+                filtered_header_results = []
+                for r in header_salary_results:
+                    valid = True
+                    for k in ['single_salary', 'min_salary', 'max_salary']:
+                        v = r.get(k)
+                        if v is not None and v > MAX_REASONABLE_SALARY:
+                            valid = False
+                    if valid:
+                        filtered_header_results.append(r)
+                header_salary_results = filtered_header_results
 
-            salary_results = self.extractor.extract_salaries(text_to_search)
-            filtered_results = []
-            for r in salary_results:
-                valid = True
-                for k in ['single_salary', 'min_salary', 'max_salary']:
-                    v = r.get(k)
-                    if v is not None and v > MAX_REASONABLE_SALARY:
-                        valid = False
-                if valid:
-                    filtered_results.append(r)
-            if filtered_results:
-                best_result = self._select_best_salary_result(filtered_results)
+            if header_salary_results:
+                best_result = self._select_best_salary_result(header_salary_results)
+            else:
+                # Fallback to title+description logic
+                text_to_search = ''
+                if pd.notna(row.get(text_column, '')):
+                    text_to_search = row[text_column]
+                if include_title and title_column in df.columns and pd.notna(row.get(title_column, '')):
+                    text_to_search = f"{row[title_column]} {text_to_search}"
+
+                salary_results = self.extractor.extract_salaries(text_to_search)
+                filtered_results = []
+                for r in salary_results:
+                    valid = True
+                    for k in ['single_salary', 'min_salary', 'max_salary']:
+                        v = r.get(k)
+                        if v is not None and v > MAX_REASONABLE_SALARY:
+                            valid = False
+                    if valid:
+                        filtered_results.append(r)
+                if filtered_results:
+                    best_result = self._select_best_salary_result(filtered_results)
+                else:
+                    best_result = None
+
+            if best_result:
                 currency_from_salary = best_result.get('currency')
                 if currency_from_salary and currency_from_salary.strip():
                     df.loc[idx, 'currency_raw'] = currency_from_salary.strip().lower()
@@ -501,10 +551,6 @@ class SalaryETL:
 
         # --- Fallback: Use geocoding and countryinfo for any remaining missing currency_raw values ---
         try:
-            from geopy.geocoders import Nominatim
-            from countryinfo import CountryInfo
-            import time
-
             # Only process rows where currency_raw is still missing or empty AND no extracted salary/currency_raw
             missing_currency_mask = (
                 (df['currency_raw'].isnull()) | (df['currency_raw'] == '') | (df['currency_raw'].str.lower() == 'none')
@@ -531,7 +577,7 @@ class SalaryETL:
                         address = geo.raw.get('address', {})
                         country = address.get('country')
                     location_country_cache[loc_key] = country
-                except Exception:
+                except (KeyError, ValueError, AttributeError, Exception):
                     location_country_cache[loc_key] = None
 
             for country in set(filter(None, location_country_cache.values())):
@@ -542,7 +588,7 @@ class SalaryETL:
                         country_currency_cache[country] = currencies[0]
                     else:
                         country_currency_cache[country] = None
-                except Exception:
+                except (KeyError, ValueError, AttributeError, Exception):
                     country_currency_cache[country] = None
 
             def geo_currency_fallback(row):
@@ -556,7 +602,7 @@ class SalaryETL:
                     if currency:
                         return currency.upper()
                 return 'USD'
-
+            missing_currency_mask = missing_currency_mask.reindex(df.index, fill_value=False)
             df.loc[missing_currency_mask, 'currency_raw'] = df[missing_currency_mask].apply(geo_currency_fallback, axis=1)
         except ImportError:
             print("Warning: geopy or countryinfo not installed, skipping geocoding fallback for currencies.")
@@ -720,6 +766,9 @@ def demo_etl_pipeline():
     print(processed_df[salary_cols].to_string(index=False))
     return processed_df
 
+# Run the test and demo ETL pipeline
+# Not necessary to run in production, but useful for debugging
+# We use SalaryETL as module.
 if __name__ == "__main__":
     test_salary_extractor()
     try:
