@@ -8,7 +8,7 @@ ETL pipeline to enrich job listings with extracted insights:
 - Work type and employment type
 
 Input:
-    data/bronze/clean_jobs.csv
+    data/bronze/clean_jobs_with_header.csv
 
 Output:
     data/silver/enriched_jobs.csv
@@ -35,7 +35,7 @@ def enrich_job_postings(df):
     Enriches a DataFrame with additional features extracted from job postings.
 
     Parameters:
-        df (pd.DataFrame): Raw DataFrame with at least 'title' and 'description' columns.
+        df (pd.DataFrame): Raw DataFrame with at least 'header_text', 'title' and 'description' columns.
 
     Returns:
         pd.DataFrame: Enriched DataFrame with new columns.
@@ -51,9 +51,35 @@ def enrich_job_postings(df):
     df['title'] = df['title'].fillna('').astype(str).str.strip()
     df['description'] = df['description'].fillna('').astype(str).str.strip()
 
-    # Salary Extraction using SalaryETL
+    # Salary Extraction using SalaryETL with header_text as primary source, fallback to title+description
     salary_etl = SalaryETL()
-    df = salary_etl.process_job_dataframe(df, text_column='description', include_title=True, title_column='title')
+    # First, try extracting salary from header_text only
+    df_with_header = salary_etl.process_job_dataframe(
+        df,
+        text_column='header_text',
+        include_title=False,
+        title_column='title'  # not used, but required by signature
+    )
+
+    # Identify rows where salary was not extracted from header_text
+    missing_salary_mask = ~df_with_header['has_salary'].fillna(False).astype(bool)
+
+    # For those rows, fallback to title+description extraction
+    if missing_salary_mask.any():
+        df_fallback = salary_etl.process_job_dataframe(
+            df_with_header.loc[missing_salary_mask],
+            text_column='description',
+            include_title=True,
+            title_column='title'
+        )
+        # Update only the missing rows with fallback extraction results
+        for col in [
+            'has_salary', 'currency_raw', 'min_salary_raw', 'max_salary_raw',
+            'single_salary_raw', 'salary_period', 'min_salary_annual_usd',
+            'max_salary_annual_usd', 'avg_salary_annual_usd', 'salary_confidence']:
+            df_with_header.loc[missing_salary_mask, col] = df_fallback[col]
+
+    df = df_with_header
 
     # Experience Level Extraction
     df['experience_level'] = df.apply(
@@ -67,15 +93,25 @@ def enrich_job_postings(df):
     for col in skill_columns:
         df[col] = extracted_skills.apply(lambda skills: skills.get(col, []))
 
-    # Work Type and Employment Type Extraction
-    df['work_type'] = df.apply(
-        lambda row: extract_work_type(str(row.get('title', '')), str(row.get('description', ''))),
-        axis=1
-    )
-    df['employment_type'] = df.apply(
-        lambda row: extract_employment_type(str(row.get('title', '')), str(row.get('description', ''))),
-        axis=1
-    )
+    # Work Type and Employment Type Extraction: use header_text first, fallback to title+description
+    def get_work_type(row):
+        header = str(row.get('header_text', '') or '').strip()
+        if header:
+            wt = extract_work_type(header, header)
+            if wt != 'Not Specified':
+                return wt
+        return extract_work_type(str(row.get('title', '')), str(row.get('description', '')))
+
+    def get_employment_type(row):
+        header = str(row.get('header_text', '') or '').strip()
+        if header:
+            et = extract_employment_type(header, header)
+            if et != 'Not Specified':
+                return et
+        return extract_employment_type(str(row.get('title', '')), str(row.get('description', '')))
+
+    df['work_type'] = df.apply(get_work_type, axis=1)
+    df['employment_type'] = df.apply(get_employment_type, axis=1)
 
     return df
 
