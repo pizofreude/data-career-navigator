@@ -106,6 +106,7 @@ def scrape_linkedin_header_selenium(driver, url):
 
 
 
+
 INPUT_CSV = "data/bronze/clean_jobs.csv"
 OUTPUT_CSV = "data/bronze/clean_jobs_with_header.csv"
 
@@ -143,13 +144,33 @@ def main():
 
     # Read input CSV
     df = pd.read_csv(INPUT_CSV)
+
+    # Try to read existing output CSV (with header_text), if it exists
+    try:
+        df_existing = pd.read_csv(OUTPUT_CSV)
+        print(f"Loaded existing {OUTPUT_CSV} with {len(df_existing)} rows.")
+    except FileNotFoundError:
+        df_existing = pd.DataFrame()
+        print(f"No existing {OUTPUT_CSV} found. Will create a new one.")
+
+    # Identify new rows to scrape (by 'link')
+    if not df_existing.empty and 'link' in df_existing.columns:
+        existing_links = set(df_existing['link'].dropna().astype(str))
+    else:
+        existing_links = set()
+
+    # Only scrape rows whose 'link' is not already in the output file
+    mask_new = ~df['link'].astype(str).isin(existing_links)
+    df_new = df[mask_new].copy()
+    print(f"{len(df_new)} new job links to scrape out of {len(df)} total.")
+
     header_texts = []
-    for idx, row in df.iterrows():
+    for idx, row in df_new.iterrows():
         url = row.get('link')
         if not isinstance(url, str) or not url.startswith('http'):
             header_texts.append(None)
             continue
-        print(f"[{idx+1}/{len(df)}] Scraping: {url}")
+        print(f"[{idx+1}/{len(df_new)}] Scraping: {url}")
         try:
             header = scrape_linkedin_header_selenium(driver, url)
         except Exception as e:
@@ -158,8 +179,22 @@ def main():
         header_texts.append(header)
         # Optional: sleep to avoid rate-limiting
         time.sleep(2)
-    df['header_text'] = header_texts
-    df.to_csv(OUTPUT_CSV, index=False)
+    df_new['header_text'] = header_texts
+
+    # Combine with existing (if any), and save
+    if not df_existing.empty:
+        # Only keep columns present in both, to avoid column mismatch
+        common_cols = [col for col in df_existing.columns if col in df_new.columns] + ['header_text']
+        df_combined = pd.concat([
+            df_existing,
+            df_new[[col for col in df_new.columns if col in common_cols]]
+        ], ignore_index=True)
+        # Deduplicate by 'link'
+        df_combined = df_combined.drop_duplicates(subset=['link'])
+    else:
+        df_combined = df_new
+
+    df_combined.to_csv(OUTPUT_CSV, index=False)
     print(f"Done! Saved with header_text to {OUTPUT_CSV}")
     driver.quit()
 
