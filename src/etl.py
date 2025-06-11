@@ -18,18 +18,16 @@ Output:
 import sys
 from pathlib import Path
 import pandas as pd
-
-# Ensure parent directory is in sys.path for imports
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-
 # Import custom extractors
 from extractors.salary_extractor import SalaryETL
 from extractors.experience_extractor import categorize_experience
 from extractors.skills_extractor import extract_skills
 from extractors.job_type_extractor import extract_work_type, extract_employment_type
+# Ensure parent directory is in sys.path for imports
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # Define input/output paths
-INPUT_PATH = Path("data/bronze/clean_jobs.csv")
+INPUT_PATH = Path("data/bronze/clean_jobs_with_header.csv")
 OUTPUT_PATH = Path("data/silver/enriched_jobs.csv")
 
 def enrich_job_postings(df):
