@@ -170,13 +170,21 @@ def main():
         if not isinstance(url, str) or not url.startswith('http'):
             header_texts.append(None)
             continue
-        print(f"[{scrape_idx}/{len(df_new)}] Scraping: {url}")
-        try:
-            header = scrape_linkedin_header_selenium(driver, url)
-        except Exception as e:
-            print(f"[WARN] Error scraping {url}: {e}")
-            header = None
-        header_texts.append(header)
+        if "linkedin.com" in url:
+            print(f"[{scrape_idx}/{len(df_new)}] Scraping: {url}")
+            try:
+                header = scrape_linkedin_header_selenium(driver, url)
+            except Exception as e:
+                print(f"[WARN] Error scraping {url}: {e}")
+                header = None
+            header_texts.append(header)
+        else:
+            print(f"[{scrape_idx}/{len(df_new)}] Skipping non-LinkedIn URL: {url}")
+            # Fallback: combine title and description, or just leave as None
+            title = row.get('title', '')
+            description = row.get('description', '')
+            fallback = f"{title} | {description}" if title or description else None
+            header_texts.append(fallback)
         # Optional: sleep to avoid rate-limiting
         time.sleep(2)
     df_new['header_text'] = header_texts
