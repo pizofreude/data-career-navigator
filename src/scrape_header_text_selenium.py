@@ -1,13 +1,33 @@
+"""
+File: src/scrape_header_text_selenium.py 
+-----------------------------------------
+This script uses Selenium to scrape job header information from LinkedIn job postings.
+It extracts salary, work type, and employment type details from the job page.
+"""
+
+# Import necessary libraries
+import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import time
+import pandas as pd
 
 def scrape_linkedin_header_selenium(driver, url):
-    # Assumes driver is already logged in and ready
+    """
+    Use Selenium to scrape job header information from LinkedIn job postings.
+    It extracts salary, work type, and employment type details from the job page.
+    It assumes driver is already logged in and ready to scrape.
+
+    Args:
+        driver (webdriver): Logged-in Selenium webdriver instance
+        url (str): LinkedIn job posting URL
+
+    Returns:
+        str: Extracted header/metadata text (if any) or None
+    """
     driver.get(url)
     print(f"Navigated to job URL: {url}. Waiting for content to load...")
     try:
@@ -84,13 +104,27 @@ def scrape_linkedin_header_selenium(driver, url):
         return None
 
 
-import pandas as pd
+
 
 INPUT_CSV = "data/bronze/clean_jobs.csv"
 OUTPUT_CSV = "data/bronze/clean_jobs_with_header.csv"
 
 def main():
-    # Set up Selenium driver and login ONCE
+    """
+    Main function to scrape LinkedIn job header information and save it to a CSV file.
+
+    This function sets up a Selenium WebDriver with specified options, requires the user
+    to manually log into LinkedIn, and then iterates over job posting URLs from an input
+    CSV file. It uses the `scrape_linkedin_header_selenium` function to extract header
+    information from each job page and appends the results to a new column in the CSV.
+
+    The extracted data is saved to an output CSV file with an additional column for header
+    text. The Selenium driver is closed at the end of the process.
+
+    Raises:
+        Exception: If any error occurs during the scraping process for a specific URL.
+    """
+
     chrome_options = Options()
     chrome_options.binary_location = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
     # chrome_options.add_argument("--headless=new")  # For batch, you may want to automate login/cookies
@@ -129,5 +163,7 @@ def main():
     print(f"Done! Saved with header_text to {OUTPUT_CSV}")
     driver.quit()
 
+
+# Run the main function if this script is executed directly
 if __name__ == "__main__":
     main()
