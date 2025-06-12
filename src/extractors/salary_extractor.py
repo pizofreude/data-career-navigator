@@ -102,33 +102,31 @@ class SalaryExtractor:
         currency_prefix = rf'(?:({currency_pattern}))'
         currency_suffix = rf'(?:({currency_pattern}))'
 
-        # Full regex patterns for salary extraction
+        # New pattern for salary ranges like $110K/yr - $130K/yr
+        range_pattern = rf'{currency_prefix}?({number_pattern})(?:/yr|/year|/annum|/mo|/month|/hr|/hour)?\s*[-–—to]+\s*{currency_prefix}?({number_pattern})(?:/yr|/year|/annum|/mo|/month|/hr|/hour)?(?:\s*({period_pattern}))?'
+
+        # All patterns, with the new one first
         self.patterns = [
+            range_pattern,
             # Pattern 1: Currency prefix required for both numbers (e.g., MX$235,200- MX$252,806)
             rf'{currency_prefix}({number_pattern})\s*[-–—to]+\s*{currency_prefix}({number_pattern})(?:\s*({period_pattern}))?',
-
             # Pattern 1.5: Currency prefix before first number, then range, then second number (no currency on second)
             rf'{currency_prefix}({number_pattern})\s*[-–—to]+\s*({number_pattern})(?:\s*({period_pattern}))?',
-
             # Pattern 2: Currency suffix with range (e.g., 50,000-80,000 USD)
             rf'({number_pattern})\s*[-–—to]?\s*({number_pattern})\s*{currency_suffix}(?:\s*({period_pattern}))?',
-
             # Pattern 3: Single salary with currency prefix (e.g., $75,000 annually)
             rf'{currency_prefix}({number_pattern})(?:\s*({period_pattern}))?',
-
             # Pattern 4: Single salary with currency suffix (e.g., 75,000 USD per year)
             rf'({number_pattern})\s*{currency_suffix}(?:\s*({period_pattern}))?',
-
             # Pattern 5: Salary range without explicit currency in between
             rf'({number_pattern})\s*[-–—to]\s*({number_pattern})\s*{currency_suffix}(?:\s*({period_pattern}))?',
-
             # Pattern 6: Complex patterns like "Salary: MYR 5,000 - 8,000"
             rf'(?:salary|compensation|pay|wage|income)[:]\s*{currency_prefix}?({number_pattern})\s*[-–—to]\s*{currency_prefix}?({number_pattern})(?:\s*({period_pattern}))?',
         ]
 
         # Debug: print the actual regex for Pattern 1 and the currency alternation
-        print("[DEBUG] Pattern 1 regex:", self.patterns[0] if hasattr(self, 'patterns') else 'not built yet')
-        print("[DEBUG] Pattern 1.5 regex:", self.patterns[1] if hasattr(self, 'patterns') else 'not built yet')
+        print("[DEBUG] Pattern 1 regex:", self.patterns[1])
+        print("[DEBUG] Pattern 1.5 regex:", self.patterns[2])
         print("[DEBUG] Currency alternation:", currency_pattern)
 
         # Compile all patterns (case-insensitive)
@@ -140,7 +138,7 @@ class SalaryExtractor:
         Only considers sentences with salary-related keywords and ignores funding/investment contexts.
         Filters out implausible salary values (zero, negative, or below a minimum threshold).
         """
-        
+        import re
         results = []
 
         salary_keywords = [
@@ -167,102 +165,91 @@ class SalaryExtractor:
         if not candidate_sentences:
             candidate_sentences = sentences
 
-        # Run extraction only on candidate sentences
         for i, pattern in enumerate(self.compiled_patterns):
             for sent in candidate_sentences:
-                matches = pattern.finditer(sent)
-                for match in matches:
+                for match in pattern.finditer(sent):
                     groups = match.groups()
-                    salary_info = {
-                        'pattern_used': i + 1,
-                        'full_match': match.group(0).strip(),
-                        'currency': None,
-                        'min_salary': None,
-                        'max_salary': None,
-                        'single_salary': None,
-                        'period': None,
-                        'position': (match.start(), match.end())
-                    }
+                    # Try to extract currency, min, max, period from groups
+                    currency = None
+                    min_salary = None
+                    max_salary = None
+                    single_salary = None
+                    period = None
+                    # Pattern 1: currency, min, currency, max, period
+                    if len(groups) >= 5 and groups[0] and groups[1] and groups[2] and groups[3]:
+                        currency = self._normalize_currency(groups[0]) or self._normalize_currency(groups[2])
+                        min_salary = self._normalize_number(groups[1])
+                        max_salary = self._normalize_number(groups[3])
+                        period = groups[4]
+                    # Pattern 1.5: currency, min, max, period
+                    elif len(groups) >= 4 and groups[0] and groups[1] and groups[2]:
+                        currency = self._normalize_currency(groups[0])
+                        min_salary = self._normalize_number(groups[1])
+                        max_salary = self._normalize_number(groups[2])
+                        period = groups[3] if len(groups) > 3 else None
+                    # Pattern 2: min, max, currency, period
+                    elif len(groups) >= 4 and groups[0] and groups[1] and groups[2]:
+                        currency = self._normalize_currency(groups[2])
+                        min_salary = self._normalize_number(groups[0])
+                        max_salary = self._normalize_number(groups[1])
+                        period = groups[3] if len(groups) > 3 else None
+                    # Pattern 3: currency, single, period
+                    elif len(groups) >= 3 and groups[0] and groups[1]:
+                        currency = self._normalize_currency(groups[0])
+                        single_salary = self._normalize_number(groups[1])
+                        period = groups[2] if len(groups) > 2 else None
+                    # Pattern 4: single, currency, period
+                    elif len(groups) >= 3 and groups[0] and groups[1]:
+                        currency = self._normalize_currency(groups[1])
+                        single_salary = self._normalize_number(groups[0])
+                        period = groups[2] if len(groups) > 2 else None
+                    # Pattern 5: min, max, currency, period
+                    elif len(groups) >= 4 and groups[0] and groups[1] and groups[2]:
+                        currency = self._normalize_currency(groups[2])
+                        min_salary = self._normalize_number(groups[0])
+                        max_salary = self._normalize_number(groups[1])
+                        period = groups[3] if len(groups) > 3 else None
+                    # Pattern 6: currency, min, currency, max, period
+                    elif len(groups) >= 5 and (groups[0] or groups[2]) and groups[1] and groups[3]:
+                        currency = self._normalize_currency(groups[0]) or self._normalize_currency(groups[2])
+                        min_salary = self._normalize_number(groups[1])
+                        max_salary = self._normalize_number(groups[3])
+                        period = groups[4]
+                    # Fallback: try to extract single salary
+                    elif len(groups) >= 2 and groups[0]:
+                        single_salary = self._normalize_number(groups[0])
+                        currency = self._normalize_currency(groups[1]) if len(groups) > 1 else None
+                        period = groups[2] if len(groups) > 2 else None
 
+                    # Filter out implausible values
+                    if min_salary is not None and min_salary < MIN_REASONABLE_SALARY:
+                        min_salary = None
+                    if max_salary is not None and max_salary < MIN_REASONABLE_SALARY:
+                        max_salary = None
+                    if single_salary is not None and single_salary < MIN_REASONABLE_SALARY:
+                        single_salary = None
 
-                    try:
-                        if 'MX$' in match.group(0) or 'mx$' in match.group(0):
-                            print(f"[DEBUG] Pattern {i+1} match: {match.group(0)}")
-                            print(f"[DEBUG] Groups: {groups}")
-                        if i == 0:  # Pattern 1: currency prefix with range
-                            currency1, min_sal, currency2, max_sal, period = (groups + (None,)*5)[:5]
-                            currency = currency1 or currency2
-                            salary_info['currency'] = self._normalize_currency(currency)
-                            salary_info['min_salary'] = self._normalize_number(min_sal)
-                            salary_info['max_salary'] = self._normalize_number(max_sal)
-                            salary_info['period'] = period.lower().strip() if period else None
-
-                        elif i == 1:  # Pattern 1.5: currency prefix before first number, then range, then second number (no currency)
-                            currency, min_sal, max_sal, period = (groups + (None,)*4)[:4]
-                            salary_info['currency'] = self._normalize_currency(currency)
-                            salary_info['min_salary'] = self._normalize_number(min_sal)
-                            salary_info['max_salary'] = self._normalize_number(max_sal)
-                            salary_info['period'] = period.lower().strip() if period else None
-
-                        elif i == 2:  # Pattern 2: currency suffix with range
-                            min_sal, max_sal, currency, period = (groups + (None,)*4)[:4]
-                            salary_info['currency'] = self._normalize_currency(currency)
-                            salary_info['min_salary'] = self._normalize_number(min_sal)
-                            salary_info['max_salary'] = self._normalize_number(max_sal)
-                            salary_info['period'] = period.lower().strip() if period else None
-
-                        elif i == 3:  # Pattern 3: single salary with currency prefix
-                            currency, single_sal, period = (groups + (None,)*3)[:3]
-                            salary_info['currency'] = self._normalize_currency(currency)
-                            salary_info['single_salary'] = self._normalize_number(single_sal)
-                            salary_info['period'] = period.lower().strip() if period else None
-
-                        elif i == 4:  # Pattern 4: single salary with currency suffix
-                            single_sal, currency, period = (groups + (None,)*3)[:3]
-                            salary_info['currency'] = self._normalize_currency(currency)
-                            salary_info['single_salary'] = self._normalize_number(single_sal)
-                            salary_info['period'] = period.lower().strip() if period else None
-
-                        elif i == 5:  # Pattern 5: salary range without explicit currency in between
-                            min_sal, max_sal, currency, period = (groups + (None,)*4)[:4]
-                            salary_info['currency'] = self._normalize_currency(currency)
-                            salary_info['min_salary'] = self._normalize_number(min_sal)
-                            salary_info['max_salary'] = self._normalize_number(max_sal)
-                            salary_info['period'] = period.lower().strip() if period else None
-
-                        elif i == 6:  # Pattern 6: complex patterns like "Salary: MYR 5,000 - 8,000"
-                            currency1, min_sal, currency2, max_sal, period = (groups + (None,)*5)[:5]
-                            currency = currency1 or currency2
-                            salary_info['currency'] = self._normalize_currency(currency)
-                            salary_info['min_salary'] = self._normalize_number(min_sal)
-                            salary_info['max_salary'] = self._normalize_number(max_sal)
-                            salary_info['period'] = period.lower().strip() if period else None
-
-                        # --- Guardrails for implausible values ---
-                        # Swap min/max if needed
-                        if (
-                            salary_info['min_salary'] is not None and salary_info['max_salary'] is not None and
-                            salary_info['min_salary'] > salary_info['max_salary']
-                        ):
-                            salary_info['min_salary'], salary_info['max_salary'] = salary_info['max_salary'], salary_info['min_salary']
-
-                        # Filter out zero, negative, or implausibly low values
-                        for key in ['min_salary', 'max_salary', 'single_salary']:
-                            val = salary_info[key]
-                            if val is not None:
-                                if (not isinstance(val, (int, float)) or math.isnan(val) or val < MIN_REASONABLE_SALARY):
-                                    salary_info[key] = None
-
-                        # Only append if we have a currency and at least one plausible salary value
-                        if salary_info['currency'] and (
-                            salary_info['min_salary'] is not None or
-                            salary_info['max_salary'] is not None or
-                            salary_info['single_salary'] is not None
-                        ):
-                            results.append(salary_info)
-
-                    except (ValueError, TypeError, AttributeError, IndexError) as e:
-                        print(f"[Warning] Pattern {i+1} failed to parse: {e}")
+                    # Only add if at least one salary is present
+                    if min_salary is not None or max_salary is not None or single_salary is not None:
+                        debug_info = {
+                            'pattern': i,
+                            'sentence': sent,
+                            'groups': groups,
+                            'currency': currency,
+                            'min_salary': min_salary,
+                            'max_salary': max_salary,
+                            'single_salary': single_salary,
+                            'period': period
+                        }
+                        print('[DEBUG][extract_salaries]', debug_info)
+                        results.append({
+                            'currency': currency,
+                            'min_salary': min_salary,
+                            'max_salary': max_salary,
+                            'single_salary': single_salary,
+                            'period': period,
+                            'position': match.span()
+                        })
 
         # Always return a list, even if empty
         return self._deduplicate_results(results)
