@@ -296,12 +296,12 @@ class SalaryExtractor:
         return bool(re.search(r'\d', cleaned))
 
     def _normalize_number(self, number_str: str) -> float:
-        """Convert number string to float value"""
+        """Convert number string to float value, handling K/M suffix and decimals correctly."""
         if not number_str:
             return 0.0
-
+    
         original_str = number_str.strip()
-
+    
         # Handle M/m multiplier (million)
         if original_str.lower().endswith('m'):
             multiplier = 1_000_000
@@ -312,7 +312,10 @@ class SalaryExtractor:
             number_str = re.sub(r'[kK]$', '', number_str)
         else:
             multiplier = 1
-
+    
+        # Remove commas and spaces, but keep decimal point
+        number_str = re.sub(r'[,\s]', '', number_str)
+    
         # Handle European vs US number formatting
         # European: 50.000,50  (period=thousands, comma=decimal)
         # US: 50,000.50      (comma=thousands, period=decimal)
@@ -332,14 +335,13 @@ class SalaryExtractor:
                 if number_str.count('.') > 1:
                     number_str = number_str.replace('.', '')
                 # else single period likely decimal, keep it
-            # Remove commas and spaces
-            number_str = re.sub(r'[,\s]', '', number_str)
-
+            # Remove commas and spaces (already done above)
+    
         try:
             return float(number_str) * multiplier
         except ValueError:
             return 0.0
-
+        
     def _deduplicate_results(self, results: List[dict]) -> List[dict]:
         """Remove duplicate and overlapping salary extractions"""
         if not results:
