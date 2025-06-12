@@ -15,7 +15,9 @@ import pandas as pd
 from src.extractors.salary_extractor import SalaryETL
 
 # Load the cleaned enriched_jobs.csv
-df = pd.read_csv("../data/silver/enriched_jobs.csv")
+project_root = Path(__file__).resolve().parent.parent
+csv_path = project_root / "data" / "silver" / "enriched_jobs.csv"
+df = pd.read_csv(csv_path)
 
 etl = SalaryETL()
 
@@ -79,4 +81,4 @@ for col in salary_df.columns:
 df = etl.process_job_dataframe(df, text_column='description', include_title=True, title_column='title')
 
 # Overwrite the original enriched_jobs.csv with the new results
-df.to_csv("../data/silver/enriched_jobs.csv", index=False)
+df.to_csv(csv_path, index=False)
