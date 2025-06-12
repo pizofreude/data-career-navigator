@@ -1,5 +1,5 @@
 """
-File: src/extractors/rerun_salary_extraction.py
+File: src/rerun_salary_extraction.py
 ---------------------------------------------
 This script reruns the salary extraction process on the enriched_jobs.csv file.
 It prioritizes the header_text for salary extraction, falling back to the description if necessary.
