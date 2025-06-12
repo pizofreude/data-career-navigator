@@ -7,6 +7,10 @@ Only run this script if needed to update salary information in the enriched_jobs
 """
 
 # Import necessary libraries
+import sys
+from pathlib import Path
+# Add project root to sys.path so 'src' can be imported
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 from src.extractors.salary_extractor import SalaryETL
 
