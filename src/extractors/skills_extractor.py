@@ -46,6 +46,20 @@ KEYWORDS_CLOUD_TOOLS = [
     'aws', 'azure', 'gcp', 'snowflake', 'redshift', 'bigquery', 'aurora',
 ]
 
+def normalize_skill(skill):
+    """
+    Normalize skill names to canonical forms for consistent extraction and analysis.
+    Handles common variants, casing, dashes, and spaces.
+    """
+    if not isinstance(skill, str):
+        return skill
+    s = skill.strip().lower().replace('-', '').replace(' ', '').replace('_', '')
+    # Map common Power BI variants
+    if s in {'powerbi', 'power-bi', 'power bi', 'power_bi'}:
+        return 'Power BI'
+    # Add more mappings as needed
+    return skill.strip()
+
 def extract_skills(text):
     """
     Extract skills by category from a job description.
@@ -67,7 +81,9 @@ def extract_skills(text):
     text = text.lower()
 
     def extract_from_list(keywords):
-        return sorted(set([kw for kw in keywords if re.search(r'\b' + re.escape(kw) + r'\b', text)]))
+        found = [kw for kw in keywords if re.search(r'\b' + re.escape(kw) + r'\b', text)]
+        # Normalize all found skills
+        return sorted(set([normalize_skill(kw) for kw in found]))
 
     return {
         "programming_languages": extract_from_list(KEYWORDS_PROGRAMMING),
