@@ -20,6 +20,11 @@ Output:
 import sys
 from pathlib import Path
 import pandas as pd
+import numpy as np
+from collections import Counter, defaultdict
+from sklearn.cluster import KMeans
+import warnings
+warnings.filterwarnings('ignore')
 # Import custom extractors
 from extractors.salary_extractor import SalaryETL
 from extractors.experience_extractor import categorize_experience
@@ -129,6 +134,112 @@ def enrich_job_postings(df):
 
     return df
 
+def parse_skills_for_gold(df, skill_cols):
+    # Parse semicolon-separated lists into Python lists
+    for col in skill_cols:
+        df[col] = df[col].fillna('').apply(lambda x: [s.strip() for s in x.split(';') if s.strip()])
+    return df
+
+def compute_clusters(df, skill_cols, n_clusters=5):
+    # Build binary skill matrix for top N skills
+    all_skills = df[skill_cols].apply(lambda row: sum(row, []), axis=1)
+    flat_skills = [skill for sublist in all_skills for skill in sublist if skill]
+    top_n = 50
+    top_skills = [s for s, _ in Counter(flat_skills).most_common(top_n)]
+    for skill in top_skills:
+        df[f'skill_{skill}'] = all_skills.apply(lambda skills: int(skill in skills))
+    skill_matrix = df[[f'skill_{skill}' for skill in top_skills]].values
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    clusters = kmeans.fit_predict(skill_matrix)
+    df['cluster'] = clusters
+    cluster_names = {
+        0: "Business / Reporting Analysts",
+        1: "Machine Learning Engineers / Researchers",
+        2: "General Data Scientists / Analytics Engineers",
+        3: "Data Engineers / Big-Data Specialists",
+        4: "BI / Analytics Developers"
+    }
+    df['cluster_name'] = df['cluster'].map(cluster_names)
+    return df, top_skills
+
+def explode_job_skills(df, skill_cols):
+    # Explode each skill category, then concatenate
+    job_skills = []
+    for idx, row in df.iterrows():
+        job_id = row['id']
+        for col in skill_cols:
+            for skill in row[col]:
+                if skill:
+                    job_skills.append({
+                        'job_id': job_id,
+                        'skill': skill,
+                        'skill_category': col
+                    })
+    return pd.DataFrame(job_skills)
+
+def build_gold_tables(df, skill_cols, gold_dir):
+    gold_dir.mkdir(parents=True, exist_ok=True)
+    # 1. job_postings.parquet
+    df.to_parquet(gold_dir / 'job_postings.parquet', index=False)
+    # 2. skills.parquet
+    all_skills = [skill for sublist in df[skill_cols].apply(lambda row: sum(row, []), axis=1) for skill in sublist if skill]
+    skill_counts = Counter(all_skills)
+    skills_df = pd.DataFrame([
+        {'skill': s, 'frequency': c} for s, c in skill_counts.items()
+    ])
+    skills_df.to_parquet(gold_dir / 'skills.parquet', index=False)
+    # 3. job_skills.parquet
+    job_skills_df = explode_job_skills(df, skill_cols)
+    job_skills_df.to_parquet(gold_dir / 'job_skills.parquet', index=False)
+    # 4. companies.parquet
+    companies = df.groupby('company').agg(
+        job_count=('id', 'count'),
+        median_salary=('avg_salary_annual_usd', 'median'),
+        country=('country', lambda x: x.mode().iloc[0] if not x.mode().empty else None)
+    ).reset_index()
+    companies.to_parquet(gold_dir / 'companies.parquet', index=False)
+    # 5. country_skill_counts.parquet
+    country_skill = defaultdict(lambda: defaultdict(int))
+    for _, row in df.iterrows():
+        country = row['country']
+        for col in skill_cols:
+            for skill in row[col]:
+                if skill:
+                    country_skill[country][skill] += 1
+    rows = []
+    for country, skills in country_skill.items():
+        for skill, count in skills.items():
+            rows.append({'country': country, 'skill': skill, 'count': count})
+    pd.DataFrame(rows).to_parquet(gold_dir / 'country_skill_counts.parquet', index=False)
+    # 6. experience_skill_counts.parquet
+    exp_skill = defaultdict(lambda: defaultdict(int))
+    for _, row in df.iterrows():
+        exp = row['experience_level']
+        for col in skill_cols:
+            for skill in row[col]:
+                if skill:
+                    exp_skill[exp][skill] += 1
+    rows = []
+    for exp, skills in exp_skill.items():
+        for skill, count in skills.items():
+            rows.append({'experience_level': exp, 'skill': skill, 'count': count})
+    pd.DataFrame(rows).to_parquet(gold_dir / 'experience_skill_counts.parquet', index=False)
+    # 7. salary_skill_stats.parquet
+    skill_salary = []
+    all_skills_series = df[skill_cols].apply(lambda row: sum(row, []), axis=1)
+    for skill in skill_counts:
+        mask = all_skills_series.apply(lambda skills: skill in skills)
+        salaries = df.loc[mask, 'avg_salary_annual_usd'].dropna()
+        if len(salaries) > 0:
+            skill_salary.append({
+                'skill': skill,
+                'p25': np.percentile(salaries, 25),
+                'median': np.percentile(salaries, 50),
+                'p75': np.percentile(salaries, 75),
+                'count': len(salaries)
+            })
+    pd.DataFrame(skill_salary).to_parquet(gold_dir / 'salary_skill_stats.parquet', index=False)
+
 def main():
     """Main ETL routine."""
     if not INPUT_PATH.exists():
@@ -156,6 +267,15 @@ def main():
     # Save enriched dataset
     enriched_df.to_csv(OUTPUT_PATH, index=False)
     print(f"✅ Enriched data saved to: {OUTPUT_PATH}")
+
+    # --- Gold ETL Process ---
+    gold_dir = Path('data/gold')
+    skill_cols = ['programming_languages', 'libraries', 'analyst_tools', 'cloud_platforms']
+    df = pd.read_csv(OUTPUT_PATH)
+    df = parse_skills_for_gold(df, skill_cols)
+    df, _ = compute_clusters(df, skill_cols)
+    build_gold_tables(df, skill_cols, gold_dir)
+    print(f"✅ Gold-layer Parquet outputs saved to: {gold_dir}")
 
 # Run the ETL pipeline
 if __name__ == "__main__":
