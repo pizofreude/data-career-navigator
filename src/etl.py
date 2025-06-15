@@ -6,6 +6,8 @@ ETL pipeline to enrich job listings with extracted insights:
 - Experience level
 - Technical skill categories
 - Work type and employment type
+- Country from location
+- Obfuscation cleaning
 
 Input:
     data/bronze/clean_jobs_with_header.csv
@@ -23,6 +25,8 @@ from extractors.salary_extractor import SalaryETL
 from extractors.experience_extractor import categorize_experience
 from extractors.skills_extractor import extract_skills
 from extractors.job_type_extractor import extract_work_type, extract_employment_type
+from extractors.obfuscation_cleaner import drop_obfuscated_rows
+from extractors.location_extractor import extract_country
 # Ensure parent directory is in sys.path for imports
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
@@ -87,6 +91,16 @@ def enrich_job_postings(df):
         axis=1
     )
 
+    # Remove rows where all key columns (location, company) are obfuscated
+    df = drop_obfuscated_rows(df, key_cols=['location', 'company'])
+
+    # Extract country from 'location' column if present
+    if 'location' in df.columns:
+        print(f"Extracting country from location column for {len(df)} rows. This may take a while if geocoding is needed...")
+        df['country'] = df['location'].apply(extract_country)
+    else:
+        df['country'] = 'Unknown'
+
     # Skill Extraction
     skill_columns = ['programming_languages', 'libraries', 'analyst_tools', 'cloud_platforms']
     extracted_skills = df['description'].apply(extract_skills)
@@ -123,6 +137,16 @@ def main():
     # Load input data
     df = pd.read_csv(INPUT_PATH)
 
+    # Remove rows where all key columns (location, company) are obfuscated
+    df = drop_obfuscated_rows(df, key_cols=['location', 'company'])
+
+    # Extract country from 'location' column if present
+    if 'location' in df.columns:
+        print(f"Extracting country from location column for {len(df)} rows. This may take a while if geocoding is needed...")
+        df['country'] = df['location'].apply(extract_country)
+    else:
+        df['country'] = 'Unknown'
+
     # Enrich data with features
     enriched_df = enrich_job_postings(df)
 
@@ -133,5 +157,6 @@ def main():
     enriched_df.to_csv(OUTPUT_PATH, index=False)
     print(f"✅ Enriched data saved to: {OUTPUT_PATH}")
 
+# Run the ETL pipeline
 if __name__ == "__main__":
     main()
