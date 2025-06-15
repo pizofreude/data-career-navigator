@@ -15,3 +15,5 @@ jupyterlab==4.4.3
 geopy==2.4.1
 countryinfo==0.1.2
 selenium==4.33.0
+pycountry==24.6.
+country_converter==1.3
