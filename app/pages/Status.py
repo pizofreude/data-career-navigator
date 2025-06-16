@@ -1,8 +1,16 @@
+"""
+File: app/pages/Status.py
+-------------------------
+This page provides up-to-date information about the status of job data collection,
+system health, and useful statistics for Data Career Navigator.
+"""
+# Import necessary libraries
 import streamlit as st
 import pandas as pd
 from utils import run_query
 import plotly.express as px
 
+# Set up the Streamlit page configuration
 st.set_page_config(
     page_title="📊 Status | Data Career Navigator",
     page_icon="🧭",
@@ -40,6 +48,7 @@ monthly_counts = jobs_over_time.groupby("Month").size().reset_index(name="Jobs C
 # Smooth the line using a rolling average (window=3)
 monthly_counts["Smoothed Jobs Collected"] = monthly_counts["Jobs Collected"].rolling(window=3, min_periods=1, center=True).mean()
 
+# Create the line chart with Plotly Express
 fig = px.line(
     monthly_counts,
     x="Month",
