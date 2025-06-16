@@ -1,5 +1,12 @@
+"""
+File: app/pages/About.py
+-------------------------
+Shows the About page for the Data Career Navigator application.
+"""
+# Import necessary libraries
 import streamlit as st
 
+# Set up the Streamlit page configuration
 st.set_page_config(
     page_title="ℹ️ About | Data Career Navigator",
     page_icon="🧭",
@@ -7,6 +14,7 @@ st.set_page_config(
 )
 st.title("ℹ️ About Data Career Navigator")
 
+## Introduction text
 st.markdown('''
 ## What is Data Career Navigator?
 
