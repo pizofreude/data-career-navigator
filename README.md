@@ -283,11 +283,11 @@ Built with Streamlit, it enables users to explore real job market data, skills, 
 - **Responsive UI:** Built for usability, with a modern dark theme and intuitive navigation.
 
 **Live Dashboard:**
-Access the live dashboard here: [https://data-career-navigator.streamlit.app/](https://data-career-navigator.streamlit.app/)
+Access the live dashboard here: [data-career-navigator.streamlit.app](https://data-career-navigator.streamlit.app/)
 
 **Dashboard Preview:**
 
-![Data Career Navigator Dashboard](dcn_dashboard.png)
+![Data Career Navigator Dashboard](images/dcn_dashboard.png)
 
 The dashboard empowers job seekers, professionals, and analysts to:
 - Identify high-demand skills and roles in the data industry
