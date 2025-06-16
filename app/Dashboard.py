@@ -1,7 +1,9 @@
 """
-app/dashboard.py
+File: app/Dashboard.py
+-------------------------
 Streamlit dashboard for interactive analytics on data career navigator gold-layer tables in MotherDuck.
 """
+# Import necessary libraries
 import json
 import streamlit as st
 import pandas as pd
@@ -10,7 +12,8 @@ import plotly.graph_objects as go
 from utils import run_query, get_table_preview
 import requests
 
-
+# Set up the Streamlit page configuration
+# Set page title, icon, and layout
 st.set_page_config(
     page_title="🌍 Dashboard | Data Career Navigator",
     page_icon="🧭",  # Compass emoji as favicon
@@ -46,6 +49,7 @@ company_options = company_df['company'].dropna().astype(str).tolist()
 work_type_options = ["Hybrid", "Not Specified", "On-site", "Remote"]
 employment_type_options = ["Contract", "Full-time", "Internship", "Not Specified", "Part-time", "Temporary"]
 
+# Add a "All" option to each filter
 st.sidebar.markdown("---")
 st.sidebar.header("Filters")
 selected_skill = st.sidebar.selectbox("Filter by Skill:", ["All"] + skill_options)
@@ -53,6 +57,7 @@ selected_company = st.sidebar.selectbox("Filter by Company:", ["All"] + company_
 selected_work_type = st.sidebar.selectbox("Filter by Work Type:", ["All"] + work_type_options)
 selected_employment_type = st.sidebar.selectbox("Filter by Employment Type:", ["All"] + employment_type_options)
 
+# Display the selected filters for table preview
 table_display = st.sidebar.selectbox(
     "Select a gold-layer table to preview:", list(TABLE_DISPLAY_NAMES.values())
 )
@@ -94,11 +99,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Cache the GeoJSON download to prevent repeated network calls
-@st.cache_data(show_spinner=False)
-def load_world_geojson():
-    url = "https://raw.githubusercontent.com/python-visualization/folium/master/examples/data/world-countries.json"
-    return requests.get(url).json()
 
 # Main: Interactive analytics
 tab1, tab2, tab3, tab4 = st.tabs([
