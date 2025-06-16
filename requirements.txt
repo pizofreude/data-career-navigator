@@ -23,6 +23,3 @@ umap-learn==0.5.7
 motherduck==0.0.0 
 pyarrow==20.0.0
 plotly==6.1.2
-folium==0.19.7
-shapely==2.1.1
-streamlit-folium==0.25.0
